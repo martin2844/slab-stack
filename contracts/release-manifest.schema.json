@@ -74,7 +74,7 @@
       "properties": {
         "ref": {
           "type": "string",
-          "pattern": "^ghcr\\.io/[a-z0-9_.-]+/[a-z0-9_.-]+:v?[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?$"
+          "pattern": "^ghcr\\.io/[a-z0-9_.-]+/[a-z0-9_.-]+:(?:v?[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?|candidate-[a-f0-9]{40})$"
         },
         "digest": { "$ref": "#/$defs/digest" },
         "platforms": {
@@ -93,4 +93,3 @@
     }
   }
 }
-

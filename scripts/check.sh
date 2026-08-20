@@ -33,8 +33,13 @@ cp "$ROOT/templates/install.env.example" "$FIXTURE_DIR/install.env"
 
 jq -e '.schemaVersion == 1 and .channel == "development"' \
   "$ROOT/releases/example-manifest.json" >/dev/null
-node "$ROOT/scripts/validate-manifest.mjs" \
-  "$ROOT/releases/example-manifest.json" >/dev/null
+
+for manifest in "$ROOT"/releases/*.json; do
+  node "$ROOT/scripts/validate-manifest.mjs" "$manifest" >/dev/null
+done
+
+node "$ROOT/scripts/render-image-env.mjs" \
+  "$ROOT/releases/v0.1.0-candidate.1.json" >/dev/null
 
 (
   cd "$FIXTURE_DIR"
@@ -77,5 +82,6 @@ done
 
 sh -n "$ROOT/scripts/check.sh"
 node --check "$ROOT/scripts/validate-manifest.mjs"
+node --check "$ROOT/scripts/render-image-env.mjs"
 
 echo "Slab stack contracts are valid."

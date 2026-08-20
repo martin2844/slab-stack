@@ -11,7 +11,7 @@ const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
 
 const semver = /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
 const digest = /^sha256:[a-f0-9]{64}$/;
-const imageRef = /^ghcr\.io\/[a-z0-9_.-]+\/[a-z0-9_.-]+:v?[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$/;
+const imageRef = /^ghcr\.io\/[a-z0-9_.-]+\/[a-z0-9_.-]+:(?:v?[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?|candidate-[a-f0-9]{40})$/;
 const serviceNames = ["agents", "work", "docs", "email", "runner"];
 
 function invariant(condition, message) {
@@ -58,4 +58,3 @@ for (const key of ["minimumUpgradeStack", "minimumRollbackStack"]) {
 }
 
 console.log(`Valid release manifest: ${manifest.stackVersion}`);
-

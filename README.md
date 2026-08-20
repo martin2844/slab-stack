@@ -20,13 +20,11 @@ The implementation source of truth is:
 
 ## Current status
 
-Phase 0 scaffold. No stable channel is published yet. The Compose contract
-references image variables that will be populated by a signed release manifest
-after all five service images exist.
-
-The first runtime pairing is now locked to Slab Runner plus Codex CLI `0.148.0`.
-The local Runner image has passed the non-root, authenticated-listener, and
-health smoke tests; its registry digest remains pending.
+The first immutable stack candidate is recorded in
+[`releases/v0.1.0-candidate.1.json`](releases/v0.1.0-candidate.1.json). It pins
+public amd64/arm64 images for all five services and the tested Slab Runner +
+Codex CLI `0.148.0` pairing. No stable channel is published yet: the candidate
+must still pass the complete Compose and clean-VPS installation matrix.
 
 ## Validate
 
@@ -34,8 +32,13 @@ health smoke tests; its registry digest remains pending.
 ./scripts/check.sh
 ```
 
-The check validates JSON contracts, shell syntax, secret-free templates, image
-pinning, network exposure, and Compose rendering with development fixtures.
+The check validates every release manifest, shell syntax, secret-free
+templates, image pinning, network exposure, and Compose rendering with
+development fixtures. To render the immutable image environment for a release:
+
+```bash
+node scripts/render-image-env.mjs releases/v0.1.0-candidate.1.json
+```
 
 ## Repository layout
 
