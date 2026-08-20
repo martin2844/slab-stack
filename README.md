@@ -21,7 +21,7 @@ The implementation source of truth is:
 ## Current status
 
 The current immutable stack candidate is recorded in
-[`releases/v0.1.0-candidate.5.json`](releases/v0.1.0-candidate.5.json). It pins
+[`releases/v0.1.0-candidate.6.json`](releases/v0.1.0-candidate.6.json). It pins
 public amd64/arm64 images for all five services and the tested Slab Runner +
 Codex CLI `0.148.0` pairing. No stable channel is published yet: the candidate
 must still pass the complete Compose and clean-VPS installation matrix.
@@ -54,7 +54,7 @@ templates, image pinning, network exposure, and Compose rendering with
 development fixtures. To render the immutable image environment for a release:
 
 ```bash
-node scripts/render-image-env.mjs releases/v0.1.0-candidate.5.json
+node scripts/render-image-env.mjs releases/v0.1.0-candidate.6.json
 ```
 
 Once a candidate manifest is ready, run the destructive-to-its-own-fixture only
@@ -73,11 +73,12 @@ and removes only that project and its volumes on exit.
 Build the exact candidate bundle locally:
 
 ```bash
-./scripts/package-release.sh releases/v0.1.0-candidate.5.json dist
+./scripts/package-release.sh releases/v0.1.0-candidate.6.json dist
 ```
 
 The packaging step is deterministic for a given manifest and source tree. It
-does not sign locally. Tag publication runs the same packaging command and uses
+uses a digest-pinned, network-isolated GNU tar/gzip toolchain so developer and
+CI hosts produce identical bytes. It does not sign locally. Tag publication runs the same packaging command and uses
 the protected `SLAB_RELEASE_SIGNING_KEY_PEM` GitHub Actions secret. CI derives
 the public key from that secret and refuses to publish unless it equals
 [`contracts/release-signing-public.pem`](contracts/release-signing-public.pem).
@@ -86,14 +87,14 @@ Until the stable channel is promoted, a reviewed candidate can be installed
 explicitly with the release bootstrap:
 
 ```bash
-sudo sh install.sh --version 0.1.0-candidate.5
+sudo sh install.sh --version 0.1.0-candidate.6
 ```
 
 Bootstrap options precede installer options. For example, an inspect-only host
 check is:
 
 ```bash
-sudo sh install.sh --version 0.1.0-candidate.5 -- --dry-run
+sudo sh install.sh --version 0.1.0-candidate.6 -- --dry-run
 ```
 
 ## Repository layout
