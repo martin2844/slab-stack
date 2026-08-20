@@ -70,6 +70,7 @@ function run(fixture, argumentsList = ["--dry-run"]) {
         SLAB_LOCK_OWNER_UID: String(process.getuid()),
         SLAB_LOCK_ROOT: path.join(fixture.directory, "locks"),
         SLAB_LOCK_TRUST_ROOT: fixture.directory,
+        SLAB_HOST_LOCK_FILE: path.join(fixture.directory, "host-bootstrap.lock"),
         SLAB_MANAGEMENT_HOST_ROOT: path.join(fixture.directory, "host"),
         SLAB_MANAGEMENT_OWNER_UID: String(process.getuid()),
         SLAB_MANAGEMENT_TRUST_ROOT: fixture.directory,

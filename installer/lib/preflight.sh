@@ -26,10 +26,10 @@ slab_validate_platform() {
 
   slab_normalize_architecture "$architecture" >/dev/null || return 1
   case "$distribution:$version" in
-    ubuntu:22.04 | ubuntu:24.04 | debian:12 | debian:12.*) return 0 ;;
+    ubuntu:22.04 | ubuntu:24.04 | ubuntu:26.04 | debian:12 | debian:12.*) return 0 ;;
     *)
       slab_preflight_error \
-        "unsupported host: $distribution $version (supported: Ubuntu 22.04/24.04 and Debian 12)."
+        "unsupported host: $distribution $version (supported: Ubuntu 22.04/24.04/26.04 and Debian 12)."
       ;;
   esac
 }
@@ -91,4 +91,24 @@ slab_run_preflight() {
   slab_require_commands curl openssl tar jq awk df flock sha256sum
   slab_require_docker
   slab_check_capacity "$install_directory"
+}
+
+slab_run_bootstrap_preflight() {
+  install_directory=$1
+  slab_require_root
+  slab_detect_platform >/dev/null
+  slab_require_commands awk df flock sha256sum sed find dirname apt-get dpkg
+  slab_check_capacity "$install_directory"
+}
+
+slab_extract_stack_version() {
+  manifest=$1
+  version=$(sed -n \
+    's/^[[:space:]]*"stackVersion"[[:space:]]*:[[:space:]]*"\([^"]*\)"[[:space:]]*,\{0,1\}[[:space:]]*$/\1/p' \
+    "$manifest")
+  if [ -z "$version" ] || [ "$(printf '%s\n' "$version" | wc -l)" -ne 1 ]; then
+    slab_preflight_error "cannot read one stackVersion from release manifest: $manifest."
+    return 1
+  fi
+  printf '%s\n' "$version"
 }
