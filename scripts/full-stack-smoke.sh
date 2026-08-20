@@ -79,6 +79,7 @@ for dependency in curl docker jq node openssl; do
 done
 
 . "$ROOT/installer/lib/secrets.sh"
+# shellcheck disable=SC1091
 . "$ROOT/installer/lib/runtime.sh"
 slab_prepare_secrets "$FIXTURE_DIR/secrets"
 cp "$ROOT/templates/compose.yml" "$FIXTURE_DIR/compose.yml"

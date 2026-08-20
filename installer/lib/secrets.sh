@@ -33,6 +33,14 @@ slab_ensure_secret_file() {
 
 slab_prepare_secrets() {
   secret_directory=$1
+  if [ -L "$secret_directory" ]; then
+    echo "Refusing symbolic-link secret directory: $secret_directory" >&2
+    return 1
+  fi
+  if [ -e "$secret_directory" ] && [ ! -d "$secret_directory" ]; then
+    echo "Secret target exists and is not a directory: $secret_directory" >&2
+    return 1
+  fi
   old_umask=$(umask)
   umask 077
   mkdir -p "$secret_directory"

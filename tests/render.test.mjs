@@ -95,6 +95,25 @@ test("renders domain configuration without changing image pins", () => {
   }
 });
 
+test("omits the optional Caddy ACME email directive when no email is configured", () => {
+  const temporaryDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "slab-render-domain-empty-email-"));
+  try {
+    const result = render(
+      temporaryDirectory,
+      "domain",
+      "https://agents.example.com",
+      "agents.example.com",
+      "",
+    );
+    assert.equal(result.status, 0, result.stderr);
+    const caddyfile = fs.readFileSync(path.join(temporaryDirectory, "Caddyfile"), "utf8");
+    assert.doesNotMatch(caddyfile, /email \{\$ACME_EMAIL\}/);
+    assert.match(caddyfile, /admin off/);
+  } finally {
+    fs.rmSync(temporaryDirectory, { recursive: true, force: true });
+  }
+});
+
 test("rejects an unknown access mode before writing files", () => {
   const temporaryDirectory = fs.mkdtempSync(
     path.join(os.tmpdir(), "slab-render-invalid-"),
@@ -104,6 +123,29 @@ test("rejects an unknown access mode before writing files", () => {
     assert.notEqual(result.status, 0);
     assert.match(result.stderr, /Unsupported access mode/);
     assert.deepEqual(fs.readdirSync(temporaryDirectory), []);
+  } finally {
+    fs.rmSync(temporaryDirectory, { recursive: true, force: true });
+  }
+});
+
+test("rejects managed-file symlinks instead of writing through them", () => {
+  const temporaryDirectory = fs.mkdtempSync(
+    path.join(os.tmpdir(), "slab-render-link-"),
+  );
+  const outside = path.join(temporaryDirectory, "outside");
+  const installation = path.join(temporaryDirectory, "installation");
+  fs.mkdirSync(installation);
+  fs.writeFileSync(outside, "must remain unchanged");
+  fs.symlinkSync(outside, path.join(installation, "compose.yml"));
+  try {
+    const result = render(
+      installation,
+      "private",
+      "http://127.0.0.1:3009",
+    );
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /Refusing symbolic-link managed file/);
+    assert.equal(fs.readFileSync(outside, "utf8"), "must remain unchanged");
   } finally {
     fs.rmSync(temporaryDirectory, { recursive: true, force: true });
   }
