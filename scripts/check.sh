@@ -85,6 +85,7 @@ done
 sh -n "$ROOT/scripts/check.sh"
 sh -n "$ROOT/scripts/full-stack-smoke.sh"
 sh -n "$ROOT/installer/lib/preflight.sh"
+sh -n "$ROOT/installer/lib/prompts.sh"
 sh -n "$ROOT/installer/lib/render.sh"
 sh -n "$ROOT/installer/lib/secrets.sh"
 node --check "$ROOT/scripts/validate-manifest.mjs"
