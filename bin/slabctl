@@ -1,0 +1,74 @@
+#!/bin/sh
+# slab-stack-managed: slabctl
+set -eu
+
+if [ -n "${SLABCTL_TEST_ROOT:-}" ] && [ "$(id -u)" -ne 0 ]; then
+  slabctl_root=$SLABCTL_TEST_ROOT
+  SLABCTL_EXPECTED_OWNER_UID=$(id -u)
+else
+  slabctl_root=
+  SLABCTL_EXPECTED_OWNER_UID=0
+fi
+pointer_file=$slabctl_root/etc/slab/install-directory
+library_file=$slabctl_root/usr/local/lib/slab-stack/codex.sh
+
+[ "$(id -u)" -eq 0 ] || [ -n "$slabctl_root" ] || {
+  echo "slabctl must run as root (use sudo)." >&2
+  exit 1
+}
+if [ ! -f "$pointer_file" ] || [ -L "$pointer_file" ]; then
+  echo "slabctl: installation registry is missing or unsafe" >&2
+  exit 1
+fi
+if [ ! -f "$library_file" ] || [ -L "$library_file" ]; then
+  echo "slabctl: management library is missing or unsafe" >&2
+  exit 1
+fi
+for management_file in "$pointer_file" "$library_file"; do
+  [ "$(stat -c '%u' "$management_file")" -eq "$SLABCTL_EXPECTED_OWNER_UID" ] || {
+    echo "slabctl: management metadata has an unexpected owner" >&2
+    exit 1
+  }
+  management_mode=$(stat -c '%a' "$management_file")
+  printf '%s\n' "$management_mode" | grep -Eq '([2367][0-7]|[0-7][2367])$' && {
+    echo "slabctl: management metadata is group/world writable" >&2
+    exit 1
+  }
+done
+
+SLABCTL_INSTALL_DIRECTORY=$(sed -n '1p' "$pointer_file")
+# shellcheck source=installer/lib/codex.sh
+. "$library_file"
+slab_acquire_management_lock "$SLABCTL_INSTALL_DIRECTORY"
+slabctl_load_installation "$SLABCTL_INSTALL_DIRECTORY"
+
+slabctl_usage() {
+  cat <<'EOF'
+Usage:
+  sudo slabctl codex login [--device-auth|--api-key]
+  sudo slabctl codex status
+  sudo slabctl codex logout
+
+Device authorization is the default login method. API keys are accepted only
+through a hidden interactive prompt or stdin and are never written by slabctl.
+EOF
+}
+
+case "${1:-}" in
+  codex)
+    case "${2:-}" in
+      login)
+        case "${3:---device-auth}" in
+          --device-auth) [ "$#" -eq 3 ] || [ "$#" -eq 2 ] || { slabctl_usage >&2; exit 2; }; slabctl_codex_login_device ;;
+          --api-key) [ "$#" -eq 3 ] || { slabctl_usage >&2; exit 2; }; slabctl_codex_login_api_key ;;
+          *) slabctl_usage >&2; exit 2 ;;
+        esac
+        ;;
+      status) [ "$#" -eq 2 ] || { slabctl_usage >&2; exit 2; }; slabctl_codex_status ;;
+      logout) [ "$#" -eq 2 ] || { slabctl_usage >&2; exit 2; }; slabctl_codex_logout ;;
+      *) slabctl_usage >&2; exit 2 ;;
+    esac
+    ;;
+  --help | -h) slabctl_usage ;;
+  *) slabctl_usage >&2; exit 2 ;;
+esac

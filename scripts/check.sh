@@ -41,7 +41,7 @@ for manifest in "$ROOT"/releases/*.json; do
 done
 
 node "$ROOT/scripts/render-image-env.mjs" \
-  "$ROOT/releases/v0.1.0-candidate.2.json" >/dev/null
+  "$ROOT/releases/v0.1.0-candidate.3.json" >/dev/null
 
 (
   cd "$FIXTURE_DIR"
@@ -120,6 +120,9 @@ sh -n "$ROOT/installer/lib/prompts.sh"
 sh -n "$ROOT/installer/lib/render.sh"
 sh -n "$ROOT/installer/lib/secrets.sh"
 sh -n "$ROOT/installer/lib/state.sh"
+sh -n "$ROOT/installer/lib/codex.sh"
+sh -n "$ROOT/installer/lib/slabctl-install.sh"
+sh -n "$ROOT/bin/slabctl"
 node --check "$ROOT/scripts/validate-manifest.mjs"
 node --check "$ROOT/scripts/render-image-env.mjs"
 

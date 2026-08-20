@@ -2,7 +2,7 @@
 set -eu
 
 ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
-MANIFEST=${SLAB_STACK_MANIFEST:-$ROOT/releases/v0.1.0-candidate.2.json}
+MANIFEST=${SLAB_STACK_MANIFEST:-$ROOT/releases/v0.1.0-candidate.3.json}
 PRIVATE_PORT=${SLAB_STACK_SMOKE_PORT:-39009}
 PROJECT_NAME=${SLAB_STACK_SMOKE_PROJECT:-slab-stack-smoke-$$}
 FIXTURE_DIR=$(mktemp -d "${TMPDIR:-/tmp}/slab-stack-smoke.XXXXXX")
@@ -113,6 +113,23 @@ curl -fsS -c "$COOKIES" \
   --data "{\"password\":\"$PASSWORD\"}" \
   "http://127.0.0.1:$PRIVATE_PORT/api/auth/login" >/dev/null
 
+setup_payload=$(curl -fsS -b "$COOKIES" \
+  -H "Origin: http://127.0.0.1:$PRIVATE_PORT" \
+  -X POST "http://127.0.0.1:$PRIVATE_PORT/api/setup/check")
+echo "$setup_payload" | jq -e '
+  .data.ready == false and
+  ([.data.checks[] | select(.service != "codex") | .state] | all(. == "connected")) and
+  ([.data.checks[] | select(.service == "codex") | .state] == ["failed"])
+' >/dev/null
+
+# Codex accepts API-key credentials without making a model request. This proves
+# that the persistent Runner home and auth-aware /runtimes contract work without
+# consuming quota or placing the test credential in argv/environment.
+printf '%s\n' 'testing-only-codex-api-key' |
+  compose exec -T -e CODEX_HOME=/var/lib/slab-runner/codex \
+    slab-runner /usr/local/bin/codex login --with-api-key >/dev/null
+compose restart slab-runner >/dev/null
+wait_healthy
 setup_ready=$(curl -fsS -b "$COOKIES" \
   -H "Origin: http://127.0.0.1:$PRIVATE_PORT" \
   -X POST "http://127.0.0.1:$PRIVATE_PORT/api/setup/check" |

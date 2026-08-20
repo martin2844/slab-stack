@@ -16,7 +16,7 @@ const imageEnvironmentRenderer = path.join(
 const candidatePath = path.join(
   root,
   "releases",
-  "v0.1.0-candidate.2.json",
+  "v0.1.0-candidate.3.json",
 );
 const example = JSON.parse(
   fs.readFileSync(path.join(root, "releases", "example-manifest.json"), "utf8"),
@@ -127,6 +127,7 @@ test("keeps every current-candidate pointer on the same manifest", () => {
   const candidateName = path.basename(candidatePath);
   for (const filename of [
     "README.md",
+    "installer/install.sh",
     "scripts/check.sh",
     "scripts/full-stack-smoke.sh",
     "scripts/render-image-env.mjs",

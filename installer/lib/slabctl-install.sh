@@ -1,0 +1,61 @@
+#!/bin/sh
+
+slab_install_management_cli() {
+  bundle_root=$1
+  install_directory=$2
+  host_root=${SLAB_MANAGEMENT_HOST_ROOT:-}
+  owner_uid=${SLAB_MANAGEMENT_OWNER_UID:-0}
+  trust_root=${SLAB_MANAGEMENT_TRUST_ROOT:-/}
+
+  binary_directory=$host_root/usr/local/bin
+  library_directory=$host_root/usr/local/lib/slab-stack
+  registry_directory=$host_root/etc/slab
+  binary_path=$binary_directory/slabctl
+  library_path=$library_directory/codex.sh
+  pointer_path=$registry_directory/install-directory
+
+  for directory in "$binary_directory" "$library_directory" "$registry_directory"; do
+    slab_validate_trusted_directory_chain \
+      "$directory" "$owner_uid" "$trust_root" || return 1
+  done
+
+  for path in "$binary_path" "$library_path" "$pointer_path"; do
+    [ ! -L "$path" ] || {
+      echo "Refusing symbolic-link management path: $path" >&2
+      return 1
+    }
+  done
+  if [ -f "$pointer_path" ]; then
+    registered_directory=$(sed -n '1p' "$pointer_path")
+    [ "$registered_directory" = "$install_directory" ] || {
+      echo "Another Slab installation is already registered at: $registered_directory" >&2
+      return 1
+    }
+  fi
+  if [ -e "$binary_path" ] && ! grep -q '^# slab-stack-managed: slabctl$' "$binary_path"; then
+    echo "Refusing to replace an unmanaged slabctl: $binary_path" >&2
+    return 1
+  fi
+
+  mkdir -p "$binary_directory" "$library_directory" "$registry_directory"
+  chmod 0755 "$binary_directory" "$library_directory" "$registry_directory"
+  if [ "$(id -u)" -eq 0 ]; then
+    chown "$owner_uid" "$library_directory" "$registry_directory"
+  fi
+  for directory in "$binary_directory" "$library_directory" "$registry_directory"; do
+    slab_validate_trusted_directory_chain \
+      "$directory" "$owner_uid" "$trust_root" || return 1
+  done
+
+  temporary_binary=$binary_directory/.slabctl.$$
+  temporary_library=$library_directory/.codex.sh.$$
+  temporary_pointer=$registry_directory/.install-directory.$$
+  cp "$bundle_root/bin/slabctl" "$temporary_binary"
+  cp "$bundle_root/installer/lib/codex.sh" "$temporary_library"
+  printf '%s\n' "$install_directory" > "$temporary_pointer"
+  chmod 0755 "$temporary_binary"
+  chmod 0644 "$temporary_library" "$temporary_pointer"
+  mv "$temporary_binary" "$binary_path"
+  mv "$temporary_library" "$library_path"
+  mv "$temporary_pointer" "$pointer_path"
+}

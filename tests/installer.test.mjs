@@ -70,6 +70,9 @@ function run(fixture, argumentsList = ["--dry-run"]) {
         SLAB_LOCK_OWNER_UID: String(process.getuid()),
         SLAB_LOCK_ROOT: path.join(fixture.directory, "locks"),
         SLAB_LOCK_TRUST_ROOT: fixture.directory,
+        SLAB_MANAGEMENT_HOST_ROOT: path.join(fixture.directory, "host"),
+        SLAB_MANAGEMENT_OWNER_UID: String(process.getuid()),
+        SLAB_MANAGEMENT_TRUST_ROOT: fixture.directory,
         SLAB_OS_RELEASE_FILE: fixture.osRelease,
       },
     },
@@ -145,11 +148,11 @@ test("rejects a rerun that changes the persisted Compose project identity", () =
   const fixture = createFixture();
   try {
     fs.mkdirSync(path.join(fixture.installDirectory, "config"), { recursive: true });
-    fs.writeFileSync(path.join(fixture.installDirectory, "VERSION"), "0.1.0-candidate.2\n");
+    fs.writeFileSync(path.join(fixture.installDirectory, "VERSION"), "0.1.0-candidate.3\n");
     fs.writeFileSync(
       path.join(fixture.installDirectory, "config", "install-state.json"),
       JSON.stringify({
-        version: "0.1.0-candidate.2",
+        version: "0.1.0-candidate.3",
         accessMode: "private",
         publicUrl: "http://127.0.0.1:39209",
         projectName: "slab-original",
@@ -182,11 +185,11 @@ esac
   );
   try {
     fs.mkdirSync(path.join(fixture.installDirectory, "config"), { recursive: true });
-    fs.writeFileSync(path.join(fixture.installDirectory, "VERSION"), "0.1.0-candidate.2\n");
+    fs.writeFileSync(path.join(fixture.installDirectory, "VERSION"), "0.1.0-candidate.3\n");
     fs.writeFileSync(
       path.join(fixture.installDirectory, "config", "install-state.json"),
       JSON.stringify({
-        version: "0.1.0-candidate.2",
+        version: "0.1.0-candidate.3",
         accessMode: "private",
         publicUrl: "http://127.0.0.1:39209",
         projectName: "slab-dry-run",
