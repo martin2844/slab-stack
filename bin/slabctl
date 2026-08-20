@@ -16,14 +16,14 @@ library_file=$slabctl_root/usr/local/lib/slab-stack/codex.sh
   echo "slabctl must run as root (use sudo)." >&2
   exit 1
 }
-[ -f "$pointer_file" ] && [ ! -L "$pointer_file" ] || {
+if [ ! -f "$pointer_file" ] || [ -L "$pointer_file" ]; then
   echo "slabctl: installation registry is missing or unsafe" >&2
   exit 1
-}
-[ -f "$library_file" ] && [ ! -L "$library_file" ] || {
+fi
+if [ ! -f "$library_file" ] || [ -L "$library_file" ]; then
   echo "slabctl: management library is missing or unsafe" >&2
   exit 1
-}
+fi
 for management_file in "$pointer_file" "$library_file"; do
   [ "$(stat -c '%u' "$management_file")" -eq "$SLABCTL_EXPECTED_OWNER_UID" ] || {
     echo "slabctl: management metadata has an unexpected owner" >&2

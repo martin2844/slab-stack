@@ -7,10 +7,10 @@ slabctl_error() {
 
 slabctl_validate_managed_file() {
   managed_file=$1
-  [ -f "$managed_file" ] && [ ! -L "$managed_file" ] || {
+  if [ ! -f "$managed_file" ] || [ -L "$managed_file" ]; then
     slabctl_error "installed stack metadata is missing or unsafe: $managed_file"
     return 1
-  }
+  fi
   expected_uid=${SLABCTL_EXPECTED_OWNER_UID:-0}
   [ "$(stat -c '%u' "$managed_file")" -eq "$expected_uid" ] || {
     slabctl_error "installed stack metadata has an unexpected owner: $managed_file"
