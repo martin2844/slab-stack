@@ -61,6 +61,20 @@ for image_var in SLAB_AGENTS_IMAGE SLAB_WORK_IMAGE SLAB_DOCS_IMAGE SLAB_EMAIL_IM
   fi
 done
 
+for migration_service in work-migrate docs-migrate email-migrate; do
+  if ! grep -q "^  ${migration_service}:" "$ROOT/templates/compose.yml"; then
+    echo "Missing one-shot migration service: $migration_service" >&2
+    exit 1
+  fi
+done
+
+for readiness_port in 6969 6970 6980 6981; do
+  if ! grep -q "127.0.0.1:${readiness_port}/ready" "$ROOT/templates/compose.yml"; then
+    echo "Service on port $readiness_port does not use schema readiness." >&2
+    exit 1
+  fi
+done
+
 sh -n "$ROOT/scripts/check.sh"
 node --check "$ROOT/scripts/validate-manifest.mjs"
 
