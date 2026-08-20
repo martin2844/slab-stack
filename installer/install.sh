@@ -276,6 +276,9 @@ slab_write_install_state \
   "$SLAB_INSTALL_DIRECTORY" "$requested_version" "$SLAB_ACCESS_MODE" \
   "$SLAB_PUBLIC_URL" "$SLAB_COMPOSE_PROJECT_NAME" \
   "$SLAB_INSTALL_ATTEMPT_STARTED_AT" "$SLAB_INSTALL_PHASE" "$completion_state"
+# The product installation is complete at this point. Optional interactive
+# runtime onboarding must never rewrite a healthy stack as FAILED.
+SLAB_INSTALL_STARTED=0
 
 echo
 echo "Slab services are healthy and the administrator is configured."

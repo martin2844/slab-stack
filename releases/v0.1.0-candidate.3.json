@@ -6,8 +6,8 @@
   "minimumSlabctlVersion": "0.1.0-candidate.3",
   "images": {
     "agents": {
-      "ref": "ghcr.io/martin2844/slab-agents:candidate-806b0f1082fe42383f3129afa513d2532ca09ccf",
-      "digest": "sha256:18628a3e2c4dfbd55519d0bf2dd2b3ff7bbac243639a84add9a27ce79df693f4",
+      "ref": "ghcr.io/martin2844/slab-agents:candidate-7a654a54305bad7174e8ac0b28ca0a9f4edc89d6",
+      "digest": "sha256:8d831bf5734069aff8ada479a176527af5b37f3b0f931ddba9725c2719ac4090",
       "platforms": ["linux/amd64", "linux/arm64"]
     },
     "work": {
