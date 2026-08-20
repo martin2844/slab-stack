@@ -58,6 +58,15 @@ The file contains the raw value followed by an optional final newline. Services
 trim exactly that final newline, reject an empty value, and do not expose the
 path or value through public settings.
 
+For a Docker Compose installation, the host `secrets/` directory is owned by
+root with mode `0700`. Its regular secret files use mode `0444` and are mounted
+read-only. Compose file secrets are bind mounts and preserve the source file
+mode; `0600 root:root` would make them unreadable to the deliberately non-root
+service UIDs. The root-only parent directory prevents host users from resolving
+or opening those files, while the read-only mount lets only the selected
+container consume its secret. A host user with Docker/root access is already
+inside the deployment trust boundary.
+
 ## Readiness
 
 `/health` must remain useful even when an optional external provider is down.
@@ -77,4 +86,3 @@ migration job succeeds
 
 A migration failure prevents new writers from starting. It does not delete or
 automatically roll back the database.
-
