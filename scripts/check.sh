@@ -75,6 +75,8 @@ for migration_service in work-migrate docs-migrate email-migrate; do
   fi
 done
 
+# The Compose source intentionally contains a literal $$(...) escape.
+# shellcheck disable=SC2016
 migration_uid_guards=$(grep -F -c 'test \"$$(id -u)\" -ne 0' \
   "$ROOT/templates/compose.yml")
 if [ "$migration_uid_guards" -ne 3 ]; then
