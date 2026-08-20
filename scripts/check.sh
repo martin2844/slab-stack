@@ -41,7 +41,7 @@ for manifest in "$ROOT"/releases/*.json; do
 done
 
 node "$ROOT/scripts/render-image-env.mjs" \
-  "$ROOT/releases/v0.1.0-candidate.1.json" >/dev/null
+  "$ROOT/releases/v0.1.0-candidate.2.json" >/dev/null
 
 (
   cd "$FIXTURE_DIR"
@@ -74,6 +74,15 @@ for migration_service in work-migrate docs-migrate email-migrate; do
     exit 1
   fi
 done
+
+# The Compose source intentionally contains a literal $$(...) escape.
+# shellcheck disable=SC2016
+migration_uid_guards=$(grep -F -c 'test \"$$(id -u)\" -ne 0' \
+  "$ROOT/templates/compose.yml")
+if [ "$migration_uid_guards" -ne 3 ]; then
+  echo "Every migration service must reject root execution." >&2
+  exit 1
+fi
 
 for readiness_port in 6969 6970 6980 6981; do
   if ! grep -q "127.0.0.1:${readiness_port}/ready" "$ROOT/templates/compose.yml"; then
