@@ -41,7 +41,7 @@ for manifest in "$ROOT"/releases/*.json; do
 done
 
 node "$ROOT/scripts/render-image-env.mjs" \
-  "$ROOT/releases/v0.1.0-candidate.3.json" >/dev/null
+  "$ROOT/releases/v0.1.0-candidate.4.json" >/dev/null
 
 (
   cd "$FIXTURE_DIR"

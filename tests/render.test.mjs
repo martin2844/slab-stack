@@ -11,7 +11,7 @@ const helper = path.join(root, "installer", "lib", "render.sh");
 const manifest = path.join(
   root,
   "releases",
-  "v0.1.0-candidate.3.json",
+  "v0.1.0-candidate.4.json",
 );
 
 function render(directory, mode, publicUrl, domain = "", email = "") {
@@ -47,7 +47,7 @@ test("renders a private installation from an immutable manifest", () => {
     assert.equal(result.status, 0, result.stderr);
     assert.equal(
       fs.readFileSync(path.join(temporaryDirectory, "VERSION"), "utf8").trim(),
-      "0.1.0-candidate.3",
+      "0.1.0-candidate.4",
     );
     assert.equal(
       fs

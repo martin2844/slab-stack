@@ -42,7 +42,7 @@ function fixture(initialStatus = "READY_NO_RUNTIME") {
   fs.writeFileSync(
     path.join(installDirectory, "config/install-state.json"),
     JSON.stringify({
-      version: "0.1.0-candidate.3",
+      version: "0.1.0-candidate.4",
       accessMode: "private",
       publicUrl: "http://127.0.0.1:3009",
       projectName: "slab",

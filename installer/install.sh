@@ -2,7 +2,7 @@
 set -eu
 
 BUNDLE_ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
-DEFAULT_MANIFEST=$BUNDLE_ROOT/releases/v0.1.0-candidate.3.json
+DEFAULT_MANIFEST=$BUNDLE_ROOT/releases/v0.1.0-candidate.4.json
 
 # shellcheck source=installer/lib/preflight.sh
 . "$BUNDLE_ROOT/installer/lib/preflight.sh"
