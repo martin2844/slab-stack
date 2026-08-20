@@ -23,7 +23,9 @@ require node
 mkdir -p "$FIXTURE_DIR/secrets"
 for secret in work-api-key docs-api-key runner-token email-admin-key email-master-key session-secret; do
   printf 'test-only-secret\n' > "$FIXTURE_DIR/secrets/$secret"
+  chmod 0444 "$FIXTURE_DIR/secrets/$secret"
 done
+chmod 0700 "$FIXTURE_DIR/secrets"
 
 cp "$ROOT/templates/compose.yml" "$FIXTURE_DIR/compose.yml"
 cp "$ROOT/templates/compose.domain.yml" "$FIXTURE_DIR/compose.domain.yml"
@@ -81,6 +83,7 @@ for readiness_port in 6969 6970 6980 6981; do
 done
 
 sh -n "$ROOT/scripts/check.sh"
+sh -n "$ROOT/installer/lib/secrets.sh"
 node --check "$ROOT/scripts/validate-manifest.mjs"
 node --check "$ROOT/scripts/render-image-env.mjs"
 
