@@ -43,15 +43,15 @@ for manifest in "$ROOT"/releases/*.json; do
 done
 
 node "$ROOT/scripts/render-image-env.mjs" \
-  "$ROOT/releases/v0.1.0-candidate.7.json" >/dev/null
+  "$ROOT/releases/v0.1.0-candidate.8.json" >/dev/null
 
-candidate_manifest=$ROOT/releases/v0.1.0-candidate.7.json
+candidate_manifest=$ROOT/releases/v0.1.0-candidate.8.json
 candidate_manifest_sha256=$(sha256sum "$candidate_manifest" | awk '{print $1}')
 jq -e \
   --arg expected_sha256 "$candidate_manifest_sha256" \
   '.schemaVersion == 1 and
    .channel == "candidate" and
-   .stackVersion == "0.1.0-candidate.7" and
+   .stackVersion == "0.1.0-candidate.8" and
    .manifestSha256 == $expected_sha256' \
   "$ROOT/channels/candidate.json" >/dev/null
 

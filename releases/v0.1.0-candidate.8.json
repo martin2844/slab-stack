@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "stackVersion": "0.1.0-candidate.8",
+  "channel": "candidate",
+  "releasedAt": "2026-08-20T19:56:49Z",
+  "minimumSlabctlVersion": "0.1.0-candidate.8",
+  "images": {
+    "agents": {
+      "ref": "ghcr.io/martin2844/slab-agents:candidate-548a43a456677aff96df1a999b9acd7b74aceb63",
+      "digest": "sha256:1dbb32124224d01ed1e6621f71c200f869268d6277cefcd6c111cc3b9c45f4e4",
+      "platforms": ["linux/amd64", "linux/arm64"]
+    },
+    "work": {
+      "ref": "ghcr.io/martin2844/slab:candidate-bbafc81d62b2f429b3af1e8972a338f5276e0f7a",
+      "digest": "sha256:3190a68db66331027605dec6f07dfd12565b0ed9132d518b25367609edf1cfc5",
+      "platforms": ["linux/amd64", "linux/arm64"]
+    },
+    "docs": {
+      "ref": "ghcr.io/martin2844/slab-docs:candidate-1e2e6ed9ca2257a393e63e3219648471a63d480c",
+      "digest": "sha256:0521012b5465e92192699eb13a13826f07739995531e1a963c8e09db25a7d59a",
+      "platforms": ["linux/amd64", "linux/arm64"]
+    },
+    "email": {
+      "ref": "ghcr.io/martin2844/slab-email:candidate-0c23b7f34fbbb4b677c33ecec6da5b0d733a6b14",
+      "digest": "sha256:1e3b48c612e70ec5afdbe364c3435d55df7654122a586e10909e0bb5392e02b3",
+      "platforms": ["linux/amd64", "linux/arm64"]
+    },
+    "runner": {
+      "ref": "ghcr.io/martin2844/slab-runner:candidate-d8a85a67ee66036a2f5f662a2aa3adc060d5511b",
+      "digest": "sha256:7cd7c1da0aa14a710c7b9c2ac59e16679e3a684513b78da6e22dc7976d078377",
+      "platforms": ["linux/amd64", "linux/arm64"]
+    }
+  },
+  "codexVersion": "0.148.0",
+  "migrationCompatibility": {
+    "minimumUpgradeStack": "0.1.0-candidate.1",
+    "minimumRollbackStack": "0.1.0-candidate.4"
+  }
+}
