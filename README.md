@@ -40,6 +40,17 @@ development fixtures. To render the immutable image environment for a release:
 node scripts/render-image-env.mjs releases/v0.1.0-candidate.1.json
 ```
 
+Once a candidate manifest is ready, run the destructive-to-its-own-fixture only
+private-stack smoke on a free loopback port:
+
+```bash
+SLAB_STACK_SMOKE_PORT=39009 ./scripts/full-stack-smoke.sh
+```
+
+It creates a unique Compose project and temporary secrets, bootstraps login,
+checks Work/Docs/Runner/Email through Slab Agents, verifies restart persistence,
+and removes only that project and its volumes on exit.
+
 ## Repository layout
 
 ```text

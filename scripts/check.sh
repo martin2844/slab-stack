@@ -83,6 +83,7 @@ for readiness_port in 6969 6970 6980 6981; do
 done
 
 sh -n "$ROOT/scripts/check.sh"
+sh -n "$ROOT/scripts/full-stack-smoke.sh"
 sh -n "$ROOT/installer/lib/secrets.sh"
 node --check "$ROOT/scripts/validate-manifest.mjs"
 node --check "$ROOT/scripts/render-image-env.mjs"

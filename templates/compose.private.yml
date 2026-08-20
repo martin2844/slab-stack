@@ -1,5 +1,4 @@
 services:
   slab-agents:
     ports:
-      - "127.0.0.1:3009:3009"
-
+      - "${SLAB_PRIVATE_BIND_IP:-127.0.0.1}:${SLAB_PRIVATE_PORT:-3009}:3009"
