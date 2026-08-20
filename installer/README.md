@@ -1,12 +1,11 @@
 # Versioned installer
 
 `install.sh` is the versioned stack installer. It is intentionally separate
-from the future small bootstrap hosted at `https://slab.ar/install.sh`: the
-public bootstrap will download and verify a release bundle before invoking
-this script.
+from the small public bootstrap in `bootstrap/install.sh`: the public entry
+point downloads and verifies a release bundle before invoking this script.
 
-The stable `install.sh` hosted at `slab.ar` will only download a versioned
-bundle, verify its checksum and signature, and execute this installer. Keeping
+The eventual stable `install.sh` endpoint will only download a versioned bundle,
+verify its checksum and detached Ed25519 signature, and execute this installer. Keeping
 the public bootstrap small makes it reviewable and keeps installation logic
 versioned with the stack manifest.
 

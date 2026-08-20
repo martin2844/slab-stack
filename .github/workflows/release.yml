@@ -1,0 +1,84 @@
+name: Publish signed stack release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - name: Install validation tools
+        run: sudo apt-get update && sudo apt-get install -y jq shellcheck
+      - name: Resolve tagged manifest
+        id: release
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=${GITHUB_REF_NAME#v}
+          manifest="releases/v${version}.json"
+          test -f "$manifest"
+          test "$(jq -r '.stackVersion' "$manifest")" = "$version"
+          channel=$(jq -r '.channel' "$manifest")
+          case "$channel" in
+            candidate) prerelease=true ;;
+            stable) prerelease=false ;;
+            *) echo "Only candidate and stable manifests can be released." >&2; exit 1 ;;
+          esac
+          printf 'version=%s\nmanifest=%s\nprerelease=%s\n' \
+            "$version" "$manifest" "$prerelease" >> "$GITHUB_OUTPUT"
+      - name: Validate release contracts
+        run: |
+          shellcheck bootstrap/install.sh bin/slabctl scripts/*.sh installer/*.sh installer/lib/*.sh
+          npm test
+          ./scripts/check.sh
+      - name: Build reproducible release bundle
+        run: ./scripts/package-release.sh "${{ steps.release.outputs.manifest }}" dist
+      - name: Sign bundle checksum
+        shell: bash
+        env:
+          SLAB_RELEASE_SIGNING_KEY_PEM: ${{ secrets.SLAB_RELEASE_SIGNING_KEY_PEM }}
+        run: |
+          set -euo pipefail
+          test -n "$SLAB_RELEASE_SIGNING_KEY_PEM"
+          umask 077
+          signing_key=$(mktemp "$RUNNER_TEMP/slab-release-signing.XXXXXX.pem")
+          derived_public=$(mktemp "$RUNNER_TEMP/slab-release-public.XXXXXX.pem")
+          cleanup() {
+            rm -f "$signing_key" "$derived_public"
+          }
+          trap cleanup EXIT HUP INT TERM
+          printf '%s\n' "$SLAB_RELEASE_SIGNING_KEY_PEM" > "$signing_key"
+          openssl pkey -in "$signing_key" -pubout -out "$derived_public"
+          cmp -s "$derived_public" contracts/release-signing-public.pem
+          checksum="dist/slab-stack-${{ steps.release.outputs.version }}.tar.gz.sha256"
+          openssl pkeyutl -sign -rawin -inkey "$signing_key" \
+            -in "$checksum" -out "$checksum.sig"
+          openssl pkeyutl -verify -rawin -pubin \
+            -inkey contracts/release-signing-public.pem \
+            -in "$checksum" -sigfile "$checksum.sig"
+          cp bootstrap/install.sh dist/install.sh
+      - name: Publish immutable GitHub Release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          release_flags=()
+          if [[ "${{ steps.release.outputs.prerelease }}" == true ]]; then
+            release_flags+=(--prerelease)
+          fi
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --verify-tag \
+            --title "Slab Stack ${{ steps.release.outputs.version }}" \
+            --notes "Signed, versioned Slab self-hosted installer bundle." \
+            "${release_flags[@]}"

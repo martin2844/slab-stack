@@ -21,10 +21,17 @@ The implementation source of truth is:
 ## Current status
 
 The current immutable stack candidate is recorded in
-[`releases/v0.1.0-candidate.4.json`](releases/v0.1.0-candidate.4.json). It pins
+[`releases/v0.1.0-candidate.5.json`](releases/v0.1.0-candidate.5.json). It pins
 public amd64/arm64 images for all five services and the tested Slab Runner +
 Codex CLI `0.148.0` pairing. No stable channel is published yet: the candidate
 must still pass the complete Compose and clean-VPS installation matrix.
+
+The candidate also has a versioned distribution contract. A release tag builds
+a reproducible tarball, signs its SHA-256 sidecar with the offline Slab release
+key, and publishes the bundle, checksum, detached Ed25519 signature, manifest,
+and reviewed bootstrap as immutable GitHub Release assets. The bootstrap embeds
+only the public trust root and refuses unsigned, modified, path-traversing, or
+symlink-containing bundles.
 
 The installer currently supports Ubuntu 22.04, 24.04, and 26.04 LTS plus
 Debian 12 on amd64/arm64. On a clean host it installs Docker Engine and Compose
@@ -47,7 +54,7 @@ templates, image pinning, network exposure, and Compose rendering with
 development fixtures. To render the immutable image environment for a release:
 
 ```bash
-node scripts/render-image-env.mjs releases/v0.1.0-candidate.4.json
+node scripts/render-image-env.mjs releases/v0.1.0-candidate.5.json
 ```
 
 Once a candidate manifest is ready, run the destructive-to-its-own-fixture only
@@ -61,10 +68,40 @@ It creates a unique Compose project and temporary secrets, bootstraps login,
 checks Work/Docs/Runner/Email through Slab Agents, verifies restart persistence,
 and removes only that project and its volumes on exit.
 
+## Package a release
+
+Build the exact candidate bundle locally:
+
+```bash
+./scripts/package-release.sh releases/v0.1.0-candidate.5.json dist
+```
+
+The packaging step is deterministic for a given manifest and source tree. It
+does not sign locally. Tag publication runs the same packaging command and uses
+the protected `SLAB_RELEASE_SIGNING_KEY_PEM` GitHub Actions secret. CI derives
+the public key from that secret and refuses to publish unless it equals
+[`contracts/release-signing-public.pem`](contracts/release-signing-public.pem).
+
+Until the stable channel is promoted, a reviewed candidate can be installed
+explicitly with the release bootstrap:
+
+```bash
+sudo sh install.sh --version 0.1.0-candidate.5
+```
+
+Bootstrap options precede installer options. For example, an inspect-only host
+check is:
+
+```bash
+sudo sh install.sh --version 0.1.0-candidate.5 -- --dry-run
+```
+
 ## Repository layout
 
 ```text
 contracts/   machine-readable release contracts
+bootstrap/   small public verifier and downloader
+channels/    reviewed release-channel pointers
 installer/   versioned installer implementation
 templates/   Compose, Caddy, and host templates
 scripts/     local and CI validation

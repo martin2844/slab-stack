@@ -19,6 +19,8 @@ require() {
 require jq
 require docker
 require node
+require openssl
+require sha256sum
 
 mkdir -p "$FIXTURE_DIR/secrets"
 for secret in work-api-key docs-api-key runner-token email-admin-key email-master-key session-secret; do
@@ -41,7 +43,26 @@ for manifest in "$ROOT"/releases/*.json; do
 done
 
 node "$ROOT/scripts/render-image-env.mjs" \
-  "$ROOT/releases/v0.1.0-candidate.4.json" >/dev/null
+  "$ROOT/releases/v0.1.0-candidate.5.json" >/dev/null
+
+candidate_manifest=$ROOT/releases/v0.1.0-candidate.5.json
+candidate_manifest_sha256=$(sha256sum "$candidate_manifest" | awk '{print $1}')
+jq -e \
+  --arg expected_sha256 "$candidate_manifest_sha256" \
+  '.schemaVersion == 1 and
+   .channel == "candidate" and
+   .stackVersion == "0.1.0-candidate.5" and
+   .manifestSha256 == $expected_sha256' \
+  "$ROOT/channels/candidate.json" >/dev/null
+
+public_key_der=$FIXTURE_DIR/release-signing-public.der
+openssl pkey -pubin -in "$ROOT/contracts/release-signing-public.pem" \
+  -outform DER -out "$public_key_der" >/dev/null 2>&1
+public_key_sha256=$(sha256sum "$public_key_der" | awk '{print $1}')
+[ "$public_key_sha256" = 2865983ef11b8070415642e0ebdcde17468f48392ee517a63f991f29e80c5293 ] || {
+  echo "Release signing public key fingerprint changed unexpectedly." >&2
+  exit 1
+}
 
 (
   cd "$FIXTURE_DIR"
@@ -110,6 +131,8 @@ done
 sh -n "$ROOT/scripts/check.sh"
 sh -n "$ROOT/scripts/full-stack-smoke.sh"
 sh -n "$ROOT/scripts/installer-smoke.sh"
+sh -n "$ROOT/scripts/package-release.sh"
+sh -n "$ROOT/bootstrap/install.sh"
 sh -n "$ROOT/installer/install.sh"
 sh -n "$ROOT/installer/lib/config.sh"
 sh -n "$ROOT/installer/lib/docker.sh"

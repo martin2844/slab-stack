@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -16,7 +17,7 @@ const imageEnvironmentRenderer = path.join(
 const candidatePath = path.join(
   root,
   "releases",
-  "v0.1.0-candidate.4.json",
+  "v0.1.0-candidate.5.json",
 );
 const example = JSON.parse(
   fs.readFileSync(path.join(root, "releases", "example-manifest.json"), "utf8"),
@@ -138,4 +139,23 @@ test("keeps every current-candidate pointer on the same manifest", () => {
       `${filename} does not point to ${candidateName}`,
     );
   }
+});
+
+test("candidate channel points to the exact reviewed manifest", () => {
+  const channel = JSON.parse(
+    fs.readFileSync(path.join(root, "channels/candidate.json"), "utf8"),
+  );
+  const manifestBytes = fs.readFileSync(candidatePath);
+  const manifestSha256 = crypto
+    .createHash("sha256")
+    .update(manifestBytes)
+    .digest("hex");
+  assert.equal(channel.schemaVersion, 1);
+  assert.equal(channel.channel, "candidate");
+  assert.equal(channel.stackVersion, candidate.stackVersion);
+  assert.equal(channel.manifestSha256, manifestSha256);
+  assert.equal(
+    channel.manifestUrl,
+    `https://github.com/martin2844/slab-stack/releases/download/v${candidate.stackVersion}/v${candidate.stackVersion}.json`,
+  );
 });
