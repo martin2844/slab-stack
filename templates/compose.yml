@@ -48,7 +48,7 @@ services:
       work-migrate:
         condition: service_completed_successfully
     healthcheck:
-      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:6970/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:6970/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 10s
       timeout: 3s
       retries: 5
@@ -74,11 +74,21 @@ services:
       work-migrate:
         condition: service_completed_successfully
     healthcheck:
-      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:6969/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:6969/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 10s
       timeout: 3s
       retries: 5
       start_period: 10s
+
+  docs-migrate:
+    image: ${SLAB_DOCS_IMAGE:?SLAB_DOCS_IMAGE is required}
+    command: ["node", "dist/db/migrate.js"]
+    networks: [control]
+    volumes:
+      - docs_data:/data
+    environment:
+      DOCS_DB_PATH: /data/slab-docs.db
+    restart: "no"
 
   slab-docs:
     <<: *service-defaults
@@ -95,12 +105,26 @@ services:
       DOCS_DB_PATH: /data/slab-docs.db
       DOCS_API_KEY_FILE: /run/secrets/docs_api_key
       NODE_ENV: production
+      SKIP_MIGRATIONS: "true"
+    depends_on:
+      docs-migrate:
+        condition: service_completed_successfully
     healthcheck:
-      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:6980/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:6980/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 10s
       timeout: 3s
       retries: 5
       start_period: 10s
+
+  email-migrate:
+    image: ${SLAB_EMAIL_IMAGE:?SLAB_EMAIL_IMAGE is required}
+    command: ["node", "dist/db/migrate.js"]
+    networks: [control]
+    volumes:
+      - email_data:/data
+    environment:
+      DATABASE_PATH: /data/slab-email.db
+    restart: "no"
 
   slab-email:
     <<: *service-defaults
@@ -122,8 +146,12 @@ services:
       MCP_ALLOWED_ORIGINS: slab-agents:3009
       MCP_ALLOWED_ORIGINS_HOSTS: slab-agents
       NODE_ENV: production
+      SKIP_MIGRATIONS: "true"
+    depends_on:
+      email-migrate:
+        condition: service_completed_successfully
     healthcheck:
-      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:6981/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:6981/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 10s
       timeout: 3s
       retries: 5
@@ -218,4 +246,3 @@ secrets:
     file: ./secrets/email-master-key
   session_secret:
     file: ./secrets/session-secret
-
