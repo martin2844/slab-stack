@@ -2,7 +2,7 @@
 set -eu
 
 ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
-MANIFEST=${SLAB_STACK_MANIFEST:-$ROOT/releases/v0.1.0-candidate.1.json}
+MANIFEST=${SLAB_STACK_MANIFEST:-$ROOT/releases/v0.1.0-candidate.2.json}
 PRIVATE_PORT=${SLAB_STACK_SMOKE_PORT:-39009}
 PROJECT_NAME=${SLAB_STACK_SMOKE_PROJECT:-slab-stack-smoke-$$}
 FIXTURE_DIR=$(mktemp -d "${TMPDIR:-/tmp}/slab-stack-smoke.XXXXXX")
@@ -25,6 +25,16 @@ trap cleanup EXIT HUP INT TERM
 require() {
   if ! command -v "$1" >/dev/null 2>&1; then
     echo "Missing full-stack smoke dependency: $1" >&2
+    exit 1
+  fi
+}
+
+assert_equal() {
+  actual=$1
+  expected=$2
+  label=$3
+  if [ "$actual" != "$expected" ]; then
+    printf '%s: expected %s, got %s.\n' "$label" "$expected" "$actual" >&2
     exit 1
   fi
 }
@@ -69,6 +79,7 @@ for dependency in curl docker jq node openssl; do
 done
 
 . "$ROOT/installer/lib/secrets.sh"
+. "$ROOT/installer/lib/runtime.sh"
 slab_prepare_secrets "$FIXTURE_DIR/secrets"
 cp "$ROOT/templates/compose.yml" "$FIXTURE_DIR/compose.yml"
 cp "$ROOT/templates/compose.private.yml" "$FIXTURE_DIR/compose.private.yml"
@@ -144,18 +155,31 @@ curl -fsS -b "$COOKIES" \
 compose restart slab-api slab-mcp slab-docs slab-email slab-runner slab-agents >/dev/null
 wait_healthy
 
+for service in slab-api slab-mcp slab-docs slab-email slab-runner slab-agents; do
+  container_id=$(compose ps -q "$service")
+  slab_assert_non_root_workload "$service" "$container_id"
+done
+
 issue_count=$(curl -fsS -b "$COOKIES" \
   "http://127.0.0.1:$PRIVATE_PORT/api/work/issues?project=SMOKE" |
   jq -r '.data | length')
 doc_count=$(curl -fsS -b "$COOKIES" \
   "http://127.0.0.1:$PRIVATE_PORT/api/docs" |
   jq -r '.data | length')
-[ "$issue_count" -eq 1 ]
-[ "$doc_count" -eq 1 ]
+assert_equal "$issue_count" 1 "Persisted Work issue count"
+assert_equal "$doc_count" 1 "Persisted Docs document count"
 
-published_ports=$(compose ps --format json |
-  jq -r 'select(.Publishers != null) | .Publishers[]? | .PublishedPort' |
+published_bindings=$(compose ps --format json |
+  jq -r '
+    select(.Publishers != null)
+    | .Publishers[]?
+    | select(.PublishedPort > 0)
+    | "\(.URL):\(.PublishedPort)"
+  ' |
   sort -u)
-[ "$published_ports" = "$PRIVATE_PORT" ]
+assert_equal \
+  "$published_bindings" \
+  "127.0.0.1:$PRIVATE_PORT" \
+  "Published host bindings"
 
 echo "Slab full-stack private smoke passed."

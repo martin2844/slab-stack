@@ -20,8 +20,8 @@ The implementation source of truth is:
 
 ## Current status
 
-The first immutable stack candidate is recorded in
-[`releases/v0.1.0-candidate.1.json`](releases/v0.1.0-candidate.1.json). It pins
+The current immutable stack candidate is recorded in
+[`releases/v0.1.0-candidate.2.json`](releases/v0.1.0-candidate.2.json). It pins
 public amd64/arm64 images for all five services and the tested Slab Runner +
 Codex CLI `0.148.0` pairing. No stable channel is published yet: the candidate
 must still pass the complete Compose and clean-VPS installation matrix.
@@ -37,7 +37,7 @@ templates, image pinning, network exposure, and Compose rendering with
 development fixtures. To render the immutable image environment for a release:
 
 ```bash
-node scripts/render-image-env.mjs releases/v0.1.0-candidate.1.json
+node scripts/render-image-env.mjs releases/v0.1.0-candidate.2.json
 ```
 
 Once a candidate manifest is ready, run the destructive-to-its-own-fixture only

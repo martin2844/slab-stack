@@ -16,7 +16,7 @@ const imageEnvironmentRenderer = path.join(
 const candidatePath = path.join(
   root,
   "releases",
-  "v0.1.0-candidate.1.json",
+  "v0.1.0-candidate.2.json",
 );
 const example = JSON.parse(
   fs.readFileSync(path.join(root, "releases", "example-manifest.json"), "utf8"),
@@ -105,5 +105,36 @@ test("renders every candidate image as an immutable tag and digest pair", () => 
   );
   for (const line of lines) {
     assert.match(line, /:candidate-[a-f0-9]{40}@sha256:[a-f0-9]{64}$/);
+  }
+});
+
+test("uses the current candidate when the renderer receives no manifest", () => {
+  const explicit = spawnSync(
+    process.execPath,
+    [imageEnvironmentRenderer, candidatePath],
+    { encoding: "utf8", cwd: root },
+  );
+  const implicit = spawnSync(process.execPath, [imageEnvironmentRenderer], {
+    encoding: "utf8",
+    cwd: root,
+  });
+  assert.equal(explicit.status, 0, explicit.stderr);
+  assert.equal(implicit.status, 0, implicit.stderr);
+  assert.equal(implicit.stdout, explicit.stdout);
+});
+
+test("keeps every current-candidate pointer on the same manifest", () => {
+  const candidateName = path.basename(candidatePath);
+  for (const filename of [
+    "README.md",
+    "scripts/check.sh",
+    "scripts/full-stack-smoke.sh",
+    "scripts/render-image-env.mjs",
+  ]) {
+    assert.match(
+      fs.readFileSync(path.join(root, filename), "utf8"),
+      new RegExp(candidateName.replaceAll(".", "\\.")),
+      `${filename} does not point to ${candidateName}`,
+    );
   }
 });

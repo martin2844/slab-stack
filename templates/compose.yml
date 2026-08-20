@@ -18,7 +18,8 @@ networks:
 services:
   work-migrate:
     image: ${SLAB_WORK_IMAGE:?SLAB_WORK_IMAGE is required}
-    command: ["node", "dist/db/migrate.js"]
+    command:
+      ["sh", "-c", "test \"$$(id -u)\" -ne 0 && exec node dist/db/migrate.js"]
     networks: [control]
     volumes:
       - work_data:/data
@@ -82,7 +83,8 @@ services:
 
   docs-migrate:
     image: ${SLAB_DOCS_IMAGE:?SLAB_DOCS_IMAGE is required}
-    command: ["node", "dist/db/migrate.js"]
+    command:
+      ["sh", "-c", "test \"$$(id -u)\" -ne 0 && exec node dist/db/migrate.js"]
     networks: [control]
     volumes:
       - docs_data:/data
@@ -118,7 +120,8 @@ services:
 
   email-migrate:
     image: ${SLAB_EMAIL_IMAGE:?SLAB_EMAIL_IMAGE is required}
-    command: ["node", "dist/db/migrate.js"]
+    command:
+      ["sh", "-c", "test \"$$(id -u)\" -ne 0 && exec node dist/db/migrate.js"]
     networks: [control]
     volumes:
       - email_data:/data
