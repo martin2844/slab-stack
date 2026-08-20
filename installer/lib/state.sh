@@ -43,10 +43,10 @@ slab_validate_existing_install_identity() {
     echo "Existing installation has no state ledger; refusing an ambiguous in-place rerun." >&2
     return 1
   }
-  [ ! -L "$state_file" ] && [ -f "$state_file" ] || {
+  if [ -L "$state_file" ] || [ ! -f "$state_file" ]; then
     echo "Existing install state must be a regular, non-symbolic-link file." >&2
     return 1
-  }
+  fi
   jq -e \
     --arg version "$version" \
     --arg accessMode "$access_mode" \

@@ -10,8 +10,9 @@ slab_validate_private_port() {
   case "$port" in
     '' | *[!0-9]*) slab_config_error "Private port must be a number."; return 1 ;;
   esac
-  [ "$port" -ge 1024 ] && [ "$port" -le 65535 ] ||
+  if [ "$port" -lt 1024 ] || [ "$port" -gt 65535 ]; then
     slab_config_error "Private port must be between 1024 and 65535."
+  fi
 }
 
 slab_validate_root_private_file() {
@@ -21,10 +22,10 @@ slab_validate_root_private_file() {
     slab_config_error "$label cannot be a symbolic link: $filename"
     return 1
   }
-  [ -f "$filename" ] && [ -r "$filename" ] || {
+  if [ ! -f "$filename" ] || [ ! -r "$filename" ]; then
     slab_config_error "$label must be a readable regular file: $filename"
     return 1
-  }
+  fi
   owner_uid=$(stat -c '%u' "$filename") || return 1
   expected_uid=${SLAB_CONFIG_OWNER_UID:-0}
   slab_validate_trusted_directory_chain \
