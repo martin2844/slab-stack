@@ -49,6 +49,22 @@ node "$ROOT/scripts/render-image-env.mjs" \
   docker compose --env-file install.env -f compose.yml -f compose.private.yml config --quiet
 )
 
+docker run --rm \
+  -e SLAB_DOMAIN=agents.example.com \
+  -e ACME_EMAIL=operator@example.com \
+  -v "$FIXTURE_DIR/Caddyfile:/etc/caddy/Caddyfile:ro" \
+  caddy:2.10.2-alpine \
+  caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null 2>&1
+# Match the literal Caddy environment placeholder.
+# shellcheck disable=SC2016
+sed '/^[[:space:]]*email {\$ACME_EMAIL}[[:space:]]*$/d' \
+  "$FIXTURE_DIR/Caddyfile" > "$FIXTURE_DIR/Caddyfile.no-email"
+docker run --rm \
+  -e SLAB_DOMAIN=agents.example.com \
+  -v "$FIXTURE_DIR/Caddyfile.no-email:/etc/caddy/Caddyfile:ro" \
+  caddy:2.10.2-alpine \
+  caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null 2>&1
+
 if grep -R -E '(Bearer |sk-[A-Za-z0-9]|password=|api[_-]?key=)' \
   "$ROOT/templates" "$ROOT/releases" >/dev/null 2>&1; then
   echo "Potential plaintext secret found in release templates." >&2
@@ -93,10 +109,17 @@ done
 
 sh -n "$ROOT/scripts/check.sh"
 sh -n "$ROOT/scripts/full-stack-smoke.sh"
+sh -n "$ROOT/scripts/installer-smoke.sh"
+sh -n "$ROOT/installer/install.sh"
+sh -n "$ROOT/installer/lib/config.sh"
+sh -n "$ROOT/installer/lib/docker.sh"
+sh -n "$ROOT/installer/lib/health.sh"
+sh -n "$ROOT/installer/lib/lock.sh"
 sh -n "$ROOT/installer/lib/preflight.sh"
 sh -n "$ROOT/installer/lib/prompts.sh"
 sh -n "$ROOT/installer/lib/render.sh"
 sh -n "$ROOT/installer/lib/secrets.sh"
+sh -n "$ROOT/installer/lib/state.sh"
 node --check "$ROOT/scripts/validate-manifest.mjs"
 node --check "$ROOT/scripts/render-image-env.mjs"
 

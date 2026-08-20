@@ -5,6 +5,69 @@ slab_prompt_error() {
   return 1
 }
 
+slab_validate_trusted_directory_chain() {
+  slab_trust_target=$1
+  slab_trust_uid=$2
+  slab_trust_root=$3
+
+  case "$slab_trust_root" in
+    /*) ;;
+    *) slab_prompt_error "Trusted path root must be absolute."; return 1 ;;
+  esac
+  if [ "$slab_trust_root" != / ]; then
+    case "$slab_trust_target/" in
+      "$slab_trust_root"/ | "$slab_trust_root"/*) ;;
+      *) slab_prompt_error "Path must be inside the trusted root: $slab_trust_root"; return 1 ;;
+    esac
+  fi
+
+  slab_trust_current=$slab_trust_root
+  if [ -L "$slab_trust_current" ] || [ ! -d "$slab_trust_current" ]; then
+    slab_prompt_error "Trusted path root must be a real directory: $slab_trust_current"
+    return 1
+  fi
+  slab_trust_relative=${slab_trust_target#"$slab_trust_root"}
+  slab_trust_relative=${slab_trust_relative#/}
+  slab_trust_old_ifs=$IFS
+  IFS=/
+  # The explicitly supplied trust root is a test seam. Production always
+  # starts at /, so every existing ancestor is checked.
+  for slab_trust_component in __root__ $slab_trust_relative; do
+    if [ "$slab_trust_component" != __root__ ]; then
+      [ -n "$slab_trust_component" ] || continue
+      if [ "$slab_trust_current" = / ]; then
+        slab_trust_current=/$slab_trust_component
+      else
+        slab_trust_current=$slab_trust_current/$slab_trust_component
+      fi
+      if [ -L "$slab_trust_current" ]; then
+        IFS=$slab_trust_old_ifs
+        slab_prompt_error "Trusted path cannot contain symbolic links: $slab_trust_current"
+        return 1
+      fi
+      [ -e "$slab_trust_current" ] || break
+      [ -d "$slab_trust_current" ] || {
+        IFS=$slab_trust_old_ifs
+        slab_prompt_error "Trusted path component is not a directory: $slab_trust_current"
+        return 1
+      }
+    fi
+    slab_trust_owner=$(stat -c '%u' "$slab_trust_current") || { IFS=$slab_trust_old_ifs; return 1; }
+    [ "$slab_trust_owner" -eq "$slab_trust_uid" ] || {
+      IFS=$slab_trust_old_ifs
+      slab_prompt_error "Trusted path must be owned by UID $slab_trust_uid: $slab_trust_current"
+      return 1
+    }
+    slab_trust_permissions=$(stat -c '%a' "$slab_trust_current") || { IFS=$slab_trust_old_ifs; return 1; }
+    if printf '%s\n' "$slab_trust_permissions" | grep -Eq '([2367][0-7]|[0-7][2367])$'; then
+      IFS=$slab_trust_old_ifs
+      slab_prompt_error "Trusted path cannot be group/world writable: $slab_trust_current"
+      return 1
+    fi
+  done
+  IFS=$slab_trust_old_ifs
+}
+
 slab_validate_install_directory() {
   install_directory=$1
   case "$install_directory" in
@@ -21,11 +84,29 @@ slab_validate_install_directory() {
       ;;
   esac
   case "$install_directory" in
+    *//* | */)
+      slab_prompt_error "Installation directory must use a canonical path without repeated or trailing slashes."
+      return 1
+      ;;
+  esac
+  case "$install_directory" in
     / | /bin | /boot | /dev | /etc | /home | /opt | /root | /run | /srv | /usr | /var)
       slab_prompt_error "Installation directory is too broad: $install_directory"
       return 1
       ;;
   esac
+  if [ -L "$install_directory" ]; then
+    slab_prompt_error "Installation directory cannot be a symbolic link."
+    return 1
+  fi
+  if [ -e "$install_directory" ] && [ ! -d "$install_directory" ]; then
+    slab_prompt_error "Installation target exists and is not a directory."
+    return 1
+  fi
+
+  slab_validate_trusted_directory_chain \
+    "$install_directory" "${SLAB_INSTALL_OWNER_UID:-0}" \
+    "${SLAB_INSTALL_TRUST_ROOT:-/}"
 }
 
 slab_validate_access_mode() {
@@ -83,23 +164,27 @@ slab_prompt_value() {
 }
 
 slab_prompt_password() {
-  restore_tty() {
-    stty echo < /dev/tty 2>/dev/null || true
-  }
-  trap restore_tty EXIT HUP INT TERM
-  printf 'Administrator password: ' > /dev/tty
-  stty -echo < /dev/tty
-  IFS= read -r password < /dev/tty
-  printf '\nConfirm administrator password: ' > /dev/tty
-  IFS= read -r confirmation < /dev/tty
-  restore_tty
-  trap - EXIT HUP INT TERM
-  printf '\n' > /dev/tty
-  slab_validate_passwords "$password" "$confirmation"
-  # Read by the versioned installer after this sourced helper returns.
+  # Command substitution isolates temporary TTY traps from the installer's
+  # outer failure/signal handlers. Only the entered password reaches stdout.
+  # Consumed by the versioned installer after this sourced helper returns.
   # shellcheck disable=SC2034
-  SLAB_ADMIN_PASSWORD=$password
-  confirmation=
+  SLAB_ADMIN_PASSWORD=$(
+    restore_tty() {
+      stty echo < /dev/tty 2>/dev/null || true
+    }
+    trap restore_tty EXIT
+    trap 'restore_tty; exit 130' HUP INT TERM
+    printf 'Administrator password: ' > /dev/tty
+    stty -echo < /dev/tty
+    IFS= read -r password < /dev/tty
+    printf '\nConfirm administrator password: ' > /dev/tty
+    IFS= read -r confirmation < /dev/tty
+    restore_tty
+    printf '\n' > /dev/tty
+    slab_validate_passwords "$password" "$confirmation" || exit 1
+    trap - EXIT HUP INT TERM
+    printf '%s' "$password"
+  ) || return 1
 }
 
 slab_collect_interactive_configuration() {
@@ -129,5 +214,4 @@ slab_collect_interactive_configuration() {
     SLAB_PUBLIC_URL=http://127.0.0.1:3009
   fi
 
-  slab_prompt_password
 }

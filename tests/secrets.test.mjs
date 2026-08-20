@@ -76,3 +76,21 @@ test("refuses a symbolic-link secret target", () => {
     fs.rmSync(temporaryDirectory, { recursive: true, force: true });
   }
 });
+
+test("refuses a symbolic-link secret directory", () => {
+  const temporaryDirectory = fs.mkdtempSync(
+    path.join(os.tmpdir(), "slab-secrets-directory-link-"),
+  );
+  const outsideDirectory = path.join(temporaryDirectory, "outside");
+  const secretsDirectory = path.join(temporaryDirectory, "secrets");
+  fs.mkdirSync(outsideDirectory);
+  fs.symlinkSync(outsideDirectory, secretsDirectory);
+  try {
+    const result = prepare(secretsDirectory);
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /Refusing symbolic-link secret directory/);
+    assert.deepEqual(fs.readdirSync(outsideDirectory), []);
+  } finally {
+    fs.rmSync(temporaryDirectory, { recursive: true, force: true });
+  }
+});

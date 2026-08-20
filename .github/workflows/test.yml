@@ -16,7 +16,7 @@ jobs:
       - name: Install validation tools
         run: sudo apt-get update && sudo apt-get install -y jq shellcheck
       - name: Shellcheck
-        run: shellcheck scripts/*.sh installer/lib/*.sh
+        run: shellcheck scripts/*.sh installer/*.sh installer/lib/*.sh
       - name: Validate manifest parser
         run: node --check scripts/validate-manifest.mjs
       - name: Test release contracts
@@ -35,3 +35,5 @@ jobs:
           node-version: 22
       - name: Verify private stack end to end
         run: ./scripts/full-stack-smoke.sh
+      - name: Verify versioned installer and idempotent rerun
+        run: ./scripts/installer-smoke.sh

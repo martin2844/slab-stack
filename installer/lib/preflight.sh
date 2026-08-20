@@ -88,7 +88,7 @@ slab_run_preflight() {
   install_directory=$1
   slab_require_root
   slab_detect_platform >/dev/null
-  slab_require_commands curl openssl tar jq awk df
+  slab_require_commands curl openssl tar jq awk df flock sha256sum
   slab_require_docker
   slab_check_capacity "$install_directory"
 }
