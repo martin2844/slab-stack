@@ -2,7 +2,7 @@
 set -eu
 
 BUNDLE_ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
-DEFAULT_MANIFEST=$BUNDLE_ROOT/releases/v0.1.0-candidate.2.json
+DEFAULT_MANIFEST=$BUNDLE_ROOT/releases/v0.1.0-candidate.3.json
 
 # shellcheck source=installer/lib/preflight.sh
 . "$BUNDLE_ROOT/installer/lib/preflight.sh"
@@ -22,6 +22,10 @@ DEFAULT_MANIFEST=$BUNDLE_ROOT/releases/v0.1.0-candidate.2.json
 . "$BUNDLE_ROOT/installer/lib/health.sh"
 # shellcheck source=installer/lib/state.sh
 . "$BUNDLE_ROOT/installer/lib/state.sh"
+# shellcheck source=installer/lib/codex.sh
+. "$BUNDLE_ROOT/installer/lib/codex.sh"
+# shellcheck source=installer/lib/slabctl-install.sh
+. "$BUNDLE_ROOT/installer/lib/slabctl-install.sh"
 
 SLAB_NON_INTERACTIVE=0
 SLAB_DRY_RUN=0
@@ -192,6 +196,7 @@ slab_validate_install_target_state
 SLAB_INSTALL_STARTED=1
 SLAB_INSTALL_ATTEMPT_STARTED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 slab_prepare_state_directory "$SLAB_INSTALL_DIRECTORY"
+slab_acquire_management_lock "$SLAB_INSTALL_DIRECTORY"
 SLAB_STATE_WRITABLE=1
 SLAB_INSTALL_PHASE=not_started
 slab_write_install_state \
@@ -209,6 +214,7 @@ slab_render_installation \
   "$SLAB_ACME_EMAIL" \
   "$SLAB_PRIVATE_BIND_IP" \
   "$SLAB_PRIVATE_PORT"
+slab_install_management_cli "$BUNDLE_ROOT" "$SLAB_INSTALL_DIRECTORY"
 slab_configure_compose \
   "$SLAB_INSTALL_DIRECTORY" \
   "$SLAB_ACCESS_MODE" \
@@ -254,7 +260,16 @@ fi
 slab_bootstrap_admin_if_needed "$SLAB_ADMIN_PASSWORD"
 SLAB_ADMIN_PASSWORD=
 
+codex_authenticated=0
+# Consumed by the sourced Codex management helper.
+# shellcheck disable=SC2034
+SLABCTL_EXPECTED_OWNER_UID=${SLAB_MANAGEMENT_OWNER_UID:-0}
+slabctl_load_installation "$SLAB_INSTALL_DIRECTORY"
+if slabctl_codex_status >/dev/null 2>&1; then
+  codex_authenticated=1
+fi
 completion_state=READY_NO_RUNTIME
+[ "$codex_authenticated" -eq 1 ] && completion_state=READY
 [ "$SLAB_ACCESS_MODE" = domain ] && completion_state=TLS_PENDING
 SLAB_INSTALL_PHASE=admin_configured
 slab_write_install_state \
@@ -272,5 +287,27 @@ else
   echo "Caddy is running for: $SLAB_PUBLIC_URL"
   echo "DNS and TLS verification are still pending in this installer milestone."
 fi
-echo "Codex authentication is the next setup step."
+if [ "$codex_authenticated" -eq 1 ]; then
+  echo "Codex authentication is active."
+else
+  echo "Codex authentication is the next setup step."
+  echo "Run: sudo slabctl codex login"
+fi
+
+if [ "$SLAB_NON_INTERACTIVE" -eq 0 ] && [ "$codex_authenticated" -eq 0 ]; then
+  printf 'Authenticate Codex now? [Y/n]: ' > /dev/tty
+  IFS= read -r authenticate_codex < /dev/tty
+  case "$authenticate_codex" in
+    n | N | no | NO) ;;
+    *)
+      if slabctl_codex_login_device; then
+        codex_authenticated=1
+        completion_state=$(jq -r '.status' \
+          "$SLAB_INSTALL_DIRECTORY/config/install-state.json")
+      else
+        echo "Codex authentication was not completed. The healthy installation remains available." >&2
+      fi
+      ;;
+  esac
+fi
 echo "Installation status: $completion_state"

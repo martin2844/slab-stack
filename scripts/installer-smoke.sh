@@ -46,10 +46,25 @@ SLAB_INSTALL_TRUST_ROOT=$FIXTURE_DIR \
 SLAB_LOCK_OWNER_UID=$(id -u) \
 SLAB_LOCK_ROOT=$FIXTURE_DIR/locks \
 SLAB_LOCK_TRUST_ROOT=$FIXTURE_DIR \
+SLAB_MANAGEMENT_HOST_ROOT=$FIXTURE_DIR/host \
+SLAB_MANAGEMENT_OWNER_UID=$(id -u) \
+SLAB_MANAGEMENT_TRUST_ROOT=$FIXTURE_DIR \
   "$ROOT/installer/install.sh" --non-interactive --config "$CONFIG_FILE"
 
 curl -fsS "http://127.0.0.1:$PRIVATE_PORT/ready" >/dev/null
 first_secret_hash=$(sha256sum "$INSTALL_DIR/secrets/session-secret" | awk '{print $1}')
+installed_slabctl=$FIXTURE_DIR/host/usr/local/bin/slabctl
+if SLABCTL_TEST_ROOT=$FIXTURE_DIR/host "$installed_slabctl" codex status \
+  >/dev/null 2>&1
+then
+  echo "Fresh installer smoke unexpectedly started with Codex authenticated." >&2
+  exit 1
+fi
+printf '%s\n' 'testing-only-installer-codex-key' |
+  SLABCTL_TEST_ROOT=$FIXTURE_DIR/host "$installed_slabctl" \
+    codex login --api-key >/dev/null
+SLABCTL_TEST_ROOT=$FIXTURE_DIR/host "$installed_slabctl" codex status \
+  >/dev/null
 
 # A rerun reconciles the same installation without requiring or rotating the
 # one-time bootstrap credential.
@@ -62,6 +77,9 @@ SLAB_INSTALL_TRUST_ROOT=$FIXTURE_DIR \
 SLAB_LOCK_OWNER_UID=$(id -u) \
 SLAB_LOCK_ROOT=$FIXTURE_DIR/locks \
 SLAB_LOCK_TRUST_ROOT=$FIXTURE_DIR \
+SLAB_MANAGEMENT_HOST_ROOT=$FIXTURE_DIR/host \
+SLAB_MANAGEMENT_OWNER_UID=$(id -u) \
+SLAB_MANAGEMENT_TRUST_ROOT=$FIXTURE_DIR \
   "$ROOT/installer/install.sh" --non-interactive --config "$CONFIG_FILE"
 
 second_secret_hash=$(sha256sum "$INSTALL_DIR/secrets/session-secret" | awk '{print $1}')
@@ -75,10 +93,10 @@ curl -fsS -c "$cookies" \
   "http://127.0.0.1:$PRIVATE_PORT/api/auth/login" >/dev/null
 
 jq -e '
-  .status == "READY_NO_RUNTIME" and
+  .status == "READY" and
   .phase == "admin_configured" and
   (.completedSteps | index("admin_configured") != null) and
-  .lastKnownGood.status == "READY_NO_RUNTIME"
+  .lastKnownGood.status == "READY"
 ' \
   "$INSTALL_DIR/config/install-state.json" >/dev/null
 

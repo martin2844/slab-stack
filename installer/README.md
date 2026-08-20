@@ -25,9 +25,9 @@ installer/lib/codex.sh
 
 The current candidate implements private/domain rendering, root-private
 secret generation, digest-pinned Compose reconciliation, administrator
-bootstrap, readiness, and idempotent reruns. Codex onboarding, Docker package
-installation, systemd/slabctl, and domain diagnostics remain subsequent plan
-gates.
+bootstrap, readiness, idempotent reruns, and Codex authentication through the
+installed `slabctl`. Docker package installation, the remaining lifecycle
+commands, systemd, and domain diagnostics remain subsequent plan gates.
 
 Interactive private install:
 
@@ -71,3 +71,25 @@ the current attempt, completed phases, immutable Compose/access identity, and
 the last known good result. Reruns reconcile that same identity and refuse
 changes that would silently fork the stack into a second Compose project or
 data set.
+
+## Codex authentication
+
+The installer places a versioned management command at `/usr/local/bin/slabctl`.
+Device authorization is the headless-server default:
+
+```sh
+sudo slabctl codex login
+sudo slabctl codex status
+sudo slabctl codex logout
+```
+
+An API key can be supplied through a hidden prompt or stdin without storing it
+in the installation config:
+
+```sh
+sudo slabctl codex login --api-key
+```
+
+Authentication is written only into the Runner's persistent Codex volume.
+After login/logout, `slabctl` restarts Runner so `codex app-server` reloads the
+credential state. A failed login does not roll back the healthy stack.
