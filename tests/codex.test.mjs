@@ -65,6 +65,7 @@ case "$*" in
     ;;
   *"login --device-auth") printf 'Open the device authorization URL\\n' ;;
   *"login status") printf 'Logged in\\n' ;;
+  *"node -e"*) exit 0 ;;
   *" logout") printf 'Logged out\\n' ;;
   *" restart slab-runner") exit 0 ;;
   *" ps -q slab-runner") printf 'runner-container\\n' ;;
@@ -177,6 +178,41 @@ test("domain TLS_PENDING state is not overwritten by Codex login", () => {
       ),
     );
     assert.equal(state.status, "TLS_PENDING");
+  } finally {
+    fs.rmSync(current.directory, { recursive: true, force: true });
+  }
+});
+
+test("slabctl refuses to race an installer holding the management lock", () => {
+  const current = fixture();
+  const lockFile = path.join(
+    current.installDirectory,
+    "config/management.lock",
+  );
+  try {
+    const result = spawnSync(
+      "sh",
+      [
+        "-c",
+        'exec 9>"$1"; flock -n 9; "$2" codex status',
+        "held-lock",
+        lockFile,
+        path.join(current.hostRoot, "usr/local/bin/slabctl"),
+      ],
+      {
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          PATH: `${current.binDirectory}:${process.env.PATH}`,
+          SLABCTL_TEST_ROOT: current.hostRoot,
+          SLAB_TEST_DOCKER_CALLS: current.calls,
+          SLAB_TEST_API_KEY_LENGTH: current.inputLength,
+        },
+      },
+    );
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /already operating on this installation/);
+    assert.equal(fs.existsSync(current.calls), false);
   } finally {
     fs.rmSync(current.directory, { recursive: true, force: true });
   }

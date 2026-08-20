@@ -155,10 +155,29 @@ slabctl_restart_runner() {
   slabctl_wait_for_runner
 }
 
+slabctl_runner_codex_available() {
+  slabctl_compose exec -T slab-runner node -e '
+    const fs = require("node:fs");
+    const token = fs.readFileSync("/run/secrets/runner_token", "utf8").trim();
+    fetch("http://127.0.0.1:6990/runtimes", {
+      headers: { "X-Runner-Token": token },
+    }).then(async (response) => {
+      if (!response.ok) process.exit(1);
+      const payload = await response.json();
+      const codex = payload.data?.find((runtime) => runtime.id === "codex");
+      process.exit(codex?.available === true ? 0 : 1);
+    }).catch(() => process.exit(1));
+  '
+}
+
 slabctl_codex_login_device() {
   slabctl_codex_command 1 login --device-auth || return 1
   slabctl_restart_runner || return 1
   slabctl_codex_command 0 login status || return 1
+  slabctl_runner_codex_available || {
+    slabctl_error "Runner did not confirm that Codex is available"
+    return 1
+  }
   slabctl_update_runtime_state authenticated
   echo "Codex authentication is active. Slab Agents will use it for new runs."
 }
@@ -192,12 +211,20 @@ slabctl_codex_login_api_key() {
   fi
   slabctl_restart_runner || return 1
   slabctl_codex_command 0 login status || return 1
+  slabctl_runner_codex_available || {
+    slabctl_error "Runner did not confirm that Codex is available"
+    return 1
+  }
   slabctl_update_runtime_state authenticated
   echo "Codex authentication is active. Slab Agents will use it for new runs."
 }
 
 slabctl_codex_status() {
-  slabctl_codex_command 0 login status
+  slabctl_codex_command 0 login status || return 1
+  slabctl_runner_codex_available || {
+    slabctl_error "Codex credentials exist, but Runner does not report the runtime available"
+    return 1
+  }
 }
 
 slabctl_codex_logout() {
