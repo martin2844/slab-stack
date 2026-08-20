@@ -24,6 +24,10 @@ Phase 0 scaffold. No stable channel is published yet. The Compose contract
 references image variables that will be populated by a signed release manifest
 after all five service images exist.
 
+The first runtime pairing is now locked to Slab Runner plus Codex CLI `0.148.0`.
+The local Runner image has passed the non-root, authenticated-listener, and
+health smoke tests; its registry digest remains pending.
+
 ## Validate
 
 ```bash
@@ -42,4 +46,3 @@ templates/   Compose, Caddy, and host templates
 scripts/     local and CI validation
 tests/       fixtures and behavioral checks
 ```
-

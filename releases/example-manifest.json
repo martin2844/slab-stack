@@ -31,10 +31,9 @@
       "platforms": ["linux/amd64", "linux/arm64"]
     }
   },
-  "codexVersion": "unpublished-development-pin",
+  "codexVersion": "0.148.0",
   "migrationCompatibility": {
     "minimumUpgradeStack": "0.0.0-development",
     "minimumRollbackStack": "0.0.0-development"
   }
 }
-
