@@ -31,6 +31,10 @@ function fixture(initialStatus = "READY_NO_RUNTIME") {
     path.join(root, "installer/lib/codex.sh"),
     path.join(hostRoot, "usr/local/lib/slab-stack/codex.sh"),
   );
+  fs.copyFileSync(
+    path.join(root, "installer/lib/lifecycle.sh"),
+    path.join(hostRoot, "usr/local/lib/slab-stack/lifecycle.sh"),
+  );
   fs.writeFileSync(
     path.join(hostRoot, "etc/slab/install-directory"),
     `${installDirectory}\n`,
@@ -69,6 +73,10 @@ case "$*" in
   *" logout") printf 'Logged out\\n' ;;
   *" restart slab-runner") exit 0 ;;
   *" ps -q slab-runner") printf 'runner-container\\n' ;;
+  *" config --quiet") exit 0 ;;
+  *" up -d --remove-orphans") exit 0 ;;
+  *" down --remove-orphans") exit 0 ;;
+  *" ps") printf 'slab-agents running healthy\\n' ;;
   "inspect runner-container "*) printf 'healthy\\n' ;;
   *) printf 'unexpected docker call: %s\\n' "$*" >&2; exit 91 ;;
 esac
@@ -105,6 +113,26 @@ test("Codex status inspects the Runner-owned persistent Codex home", () => {
       calls,
       /exec -T -e CODEX_HOME=\/var\/lib\/slab-runner\/codex slab-runner \/usr\/local\/bin\/codex login status/,
     );
+  } finally {
+    fs.rmSync(current.directory, { recursive: true, force: true });
+  }
+});
+
+test("stack lifecycle commands use the registered immutable Compose identity", () => {
+  const current = fixture();
+  try {
+    const start = run(current, ["stack", "start"]);
+    assert.equal(start.status, 0, start.stderr);
+    const status = run(current, ["stack", "status"]);
+    assert.equal(status.status, 0, status.stderr);
+    assert.match(status.stdout, /slab-agents running healthy/);
+    const restart = run(current, ["stack", "restart"]);
+    assert.equal(restart.status, 0, restart.stderr);
+
+    const calls = fs.readFileSync(current.calls, "utf8");
+    assert.match(calls, /--project-name slab .* config --quiet/);
+    assert.match(calls, /--project-name slab .* up -d --remove-orphans/);
+    assert.match(calls, /--project-name slab .* down --remove-orphans/);
   } finally {
     fs.rmSync(current.directory, { recursive: true, force: true });
   }

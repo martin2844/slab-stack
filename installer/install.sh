@@ -28,6 +28,8 @@ DEFAULT_MANIFEST=$BUNDLE_ROOT/releases/v0.1.0-candidate.4.json
 . "$BUNDLE_ROOT/installer/lib/codex.sh"
 # shellcheck source=installer/lib/slabctl-install.sh
 . "$BUNDLE_ROOT/installer/lib/slabctl-install.sh"
+# shellcheck source=installer/lib/systemd.sh
+. "$BUNDLE_ROOT/installer/lib/systemd.sh"
 
 SLAB_NON_INTERACTIVE=0
 SLAB_DRY_RUN=0
@@ -234,6 +236,7 @@ slab_render_installation \
   "$SLAB_PRIVATE_BIND_IP" \
   "$SLAB_PRIVATE_PORT"
 slab_install_management_cli "$BUNDLE_ROOT" "$SLAB_INSTALL_DIRECTORY"
+slab_install_systemd_unit "$BUNDLE_ROOT"
 slab_configure_compose \
   "$SLAB_INSTALL_DIRECTORY" \
   "$SLAB_ACCESS_MODE" \
@@ -253,6 +256,12 @@ slab_write_install_state \
   "$SLAB_INSTALL_ATTEMPT_STARTED_AT" "$SLAB_INSTALL_PHASE" INSTALLING
 slab_pull_and_start
 SLAB_INSTALL_PHASE=compose_reconciled
+slab_write_install_state \
+  "$SLAB_INSTALL_DIRECTORY" "$requested_version" "$SLAB_ACCESS_MODE" \
+  "$SLAB_PUBLIC_URL" "$SLAB_COMPOSE_PROJECT_NAME" \
+  "$SLAB_INSTALL_ATTEMPT_STARTED_AT" "$SLAB_INSTALL_PHASE" INSTALLING
+slab_activate_systemd_unit "$SLAB_INSTALL_DIRECTORY"
+SLAB_INSTALL_PHASE=lifecycle_configured
 slab_write_install_state \
   "$SLAB_INSTALL_DIRECTORY" "$requested_version" "$SLAB_ACCESS_MODE" \
   "$SLAB_PUBLIC_URL" "$SLAB_COMPOSE_PROJECT_NAME" \

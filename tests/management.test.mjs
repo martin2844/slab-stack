@@ -42,9 +42,11 @@ test("installs slabctl idempotently and pins it to one installation", () => {
     assert.equal(first.status, 0, first.stderr);
     const binary = path.join(hostRoot, "usr/local/bin/slabctl");
     const library = path.join(hostRoot, "usr/local/lib/slab-stack/codex.sh");
+    const lifecycle = path.join(hostRoot, "usr/local/lib/slab-stack/lifecycle.sh");
     const pointer = path.join(hostRoot, "etc/slab/install-directory");
     assert.match(fs.readFileSync(binary, "utf8"), /slab-stack-managed: slabctl/);
     assert.match(fs.readFileSync(library, "utf8"), /slabctl_codex_login_device/);
+    assert.match(fs.readFileSync(lifecycle, "utf8"), /slabctl_stack_start/);
     assert.equal(fs.readFileSync(pointer, "utf8").trim(), firstInstall);
     assert.equal(fs.statSync(binary).mode & 0o777, 0o755);
     assert.equal(fs.statSync(pointer).mode & 0o777, 0o644);

@@ -5,8 +5,9 @@ slab_completed_steps_for_phase() {
     rendered) printf '%s\n' '["rendered"]' ;;
     compose_validated) printf '%s\n' '["rendered","compose_validated"]' ;;
     compose_reconciled) printf '%s\n' '["rendered","compose_validated","compose_reconciled"]' ;;
-    services_healthy) printf '%s\n' '["rendered","compose_validated","compose_reconciled","services_healthy"]' ;;
-    admin_configured) printf '%s\n' '["rendered","compose_validated","compose_reconciled","services_healthy","admin_configured"]' ;;
+    lifecycle_configured) printf '%s\n' '["rendered","compose_validated","compose_reconciled","lifecycle_configured"]' ;;
+    services_healthy) printf '%s\n' '["rendered","compose_validated","compose_reconciled","lifecycle_configured","services_healthy"]' ;;
+    admin_configured) printf '%s\n' '["rendered","compose_validated","compose_reconciled","lifecycle_configured","services_healthy","admin_configured"]' ;;
     *) printf '%s\n' '[]' ;;
   esac
 }

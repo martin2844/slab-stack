@@ -41,6 +41,7 @@ test("persists atomic non-secret progress through final readiness", () => {
       "rendered",
       "compose_validated",
       "compose_reconciled",
+      "lifecycle_configured",
       "services_healthy",
     ]);
     assert.equal(JSON.stringify(current).includes("password"), false);

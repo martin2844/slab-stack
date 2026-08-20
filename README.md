@@ -31,6 +31,11 @@ Debian 12 on amd64/arm64. On a clean host it installs Docker Engine and Compose
 V2 from Docker's official apt repository after verifying the repository key
 fingerprint.
 
+The installed stack is registered as `slab.service`. systemd starts it after
+Docker and the network are available, stops it before Docker shuts down, and
+provides standard host lifecycle operations without exposing the Docker socket
+to Slab Agents.
+
 ## Validate
 
 ```bash

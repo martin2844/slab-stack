@@ -11,6 +11,7 @@ else
 fi
 pointer_file=$slabctl_root/etc/slab/install-directory
 library_file=$slabctl_root/usr/local/lib/slab-stack/codex.sh
+lifecycle_file=$slabctl_root/usr/local/lib/slab-stack/lifecycle.sh
 
 [ "$(id -u)" -eq 0 ] || [ -n "$slabctl_root" ] || {
   echo "slabctl must run as root (use sudo)." >&2
@@ -24,7 +25,11 @@ if [ ! -f "$library_file" ] || [ -L "$library_file" ]; then
   echo "slabctl: management library is missing or unsafe" >&2
   exit 1
 fi
-for management_file in "$pointer_file" "$library_file"; do
+if [ ! -f "$lifecycle_file" ] || [ -L "$lifecycle_file" ]; then
+  echo "slabctl: lifecycle library is missing or unsafe" >&2
+  exit 1
+fi
+for management_file in "$pointer_file" "$library_file" "$lifecycle_file"; do
   [ "$(stat -c '%u' "$management_file")" -eq "$SLABCTL_EXPECTED_OWNER_UID" ] || {
     echo "slabctl: management metadata has an unexpected owner" >&2
     exit 1
@@ -39,12 +44,18 @@ done
 SLABCTL_INSTALL_DIRECTORY=$(sed -n '1p' "$pointer_file")
 # shellcheck source=installer/lib/codex.sh
 . "$library_file"
+# shellcheck source=installer/lib/lifecycle.sh
+. "$lifecycle_file"
 slab_acquire_management_lock "$SLABCTL_INSTALL_DIRECTORY"
 slabctl_load_installation "$SLABCTL_INSTALL_DIRECTORY"
 
 slabctl_usage() {
   cat <<'EOF'
 Usage:
+  sudo slabctl stack start
+  sudo slabctl stack stop
+  sudo slabctl stack restart
+  sudo slabctl stack status
   sudo slabctl codex login [--device-auth|--api-key]
   sudo slabctl codex status
   sudo slabctl codex logout
@@ -55,6 +66,15 @@ EOF
 }
 
 case "${1:-}" in
+  stack)
+    case "${2:-}" in
+      start) [ "$#" -eq 2 ] || { slabctl_usage >&2; exit 2; }; slabctl_stack_start ;;
+      stop) [ "$#" -eq 2 ] || { slabctl_usage >&2; exit 2; }; slabctl_stack_stop ;;
+      restart) [ "$#" -eq 2 ] || { slabctl_usage >&2; exit 2; }; slabctl_stack_restart ;;
+      status) [ "$#" -eq 2 ] || { slabctl_usage >&2; exit 2; }; slabctl_stack_status ;;
+      *) slabctl_usage >&2; exit 2 ;;
+    esac
+    ;;
   codex)
     case "${2:-}" in
       login)

@@ -22,15 +22,18 @@ installer/lib/secrets.sh
 installer/lib/render.sh
 installer/lib/health.sh
 installer/lib/codex.sh
+installer/lib/lifecycle.sh
+installer/lib/systemd.sh
 ```
 
 The current candidate implements private/domain rendering, root-private
 secret generation, digest-pinned Compose reconciliation, administrator
-bootstrap, readiness, idempotent reruns, and Codex authentication through the
-installed `slabctl`. On Ubuntu 22.04, 24.04, or 26.04 and Debian 12, a missing
-Docker Engine is installed from Docker's official apt repository after its
-signing-key fingerprint is verified. The remaining lifecycle commands,
-systemd, and domain diagnostics remain subsequent plan gates.
+bootstrap, readiness, idempotent reruns, Codex authentication through the
+installed `slabctl`, and a managed `slab.service` lifecycle. On Ubuntu 22.04,
+24.04, or 26.04 and Debian 12, a missing Docker Engine is installed from
+Docker's official apt repository after its signing-key fingerprint is
+verified. Domain diagnostics and the remaining management commands are
+subsequent plan gates.
 
 The installer refuses to remove conflicting distribution Docker packages
 automatically. This keeps host package removal explicit; resolve the reported
@@ -68,6 +71,32 @@ Compose environment, state file, or process arguments.
 The password file is only required while the initial administrator still
 needs to be created. A ready installation can be reconciled without that
 one-time file, and its existing administrator password is never rotated.
+
+## Service lifecycle
+
+The installer atomically installs `/etc/systemd/system/slab.service`, refuses
+to overwrite an unmanaged unit with that name, and enables it for every boot.
+The unit runs the same registered, immutable Compose identity as `slabctl`.
+
+```sh
+sudo systemctl status slab
+sudo systemctl restart slab
+sudo systemctl stop slab
+sudo systemctl start slab
+sudo journalctl -u slab
+```
+
+The corresponding management entry points are also available directly:
+
+```sh
+sudo slabctl stack status
+sudo slabctl stack restart
+```
+
+Stopping the service removes containers and project networks but never named
+volumes. Starting it again reruns the idempotent migration jobs before the
+long-running services, so Work, Docs, agents, Email metadata, and Codex auth
+remain persistent.
 
 The installation directory and every existing ancestor must be root-owned and
 must not be group/world writable. This protects the root-run Compose boundary;

@@ -10,6 +10,22 @@ PASSWORD_FILE=$FIXTURE_DIR/admin-password
 PRIVATE_PORT=${SLAB_INSTALLER_SMOKE_PORT:-39109}
 PROJECT_NAME=${SLAB_INSTALLER_SMOKE_PROJECT:-slab-installer-smoke-$$}
 PASSWORD=testing-only-installer-admin-password
+SYSTEMCTL_CALLS=$FIXTURE_DIR/systemctl-calls
+
+cat > "$FIXTURE_DIR/systemctl-test" <<'EOF'
+#!/bin/sh
+set -eu
+printf '%s\n' "$*" >> "$SLAB_TEST_SYSTEMCTL_CALLS"
+case "$*" in
+  "daemon-reload") ;;
+  "enable --now slab.service")
+    SLABCTL_TEST_ROOT=$SLAB_MANAGEMENT_HOST_ROOT \
+      "$SLAB_MANAGEMENT_HOST_ROOT/usr/local/bin/slabctl" stack start >/dev/null
+    ;;
+  *) echo "unexpected systemctl command: $*" >&2; exit 91 ;;
+esac
+EOF
+chmod 0755 "$FIXTURE_DIR/systemctl-test"
 
 compose() {
   docker compose --project-name "$PROJECT_NAME" \
@@ -50,6 +66,8 @@ SLAB_HOST_LOCK_FILE=$FIXTURE_DIR/host-bootstrap.lock \
 SLAB_MANAGEMENT_HOST_ROOT=$FIXTURE_DIR/host \
 SLAB_MANAGEMENT_OWNER_UID=$(id -u) \
 SLAB_MANAGEMENT_TRUST_ROOT=$FIXTURE_DIR \
+SLAB_SYSTEMCTL_BIN=$FIXTURE_DIR/systemctl-test \
+SLAB_TEST_SYSTEMCTL_CALLS=$SYSTEMCTL_CALLS \
   "$ROOT/installer/install.sh" --non-interactive --config "$CONFIG_FILE"
 
 curl -fsS "http://127.0.0.1:$PRIVATE_PORT/ready" >/dev/null
@@ -82,10 +100,13 @@ SLAB_HOST_LOCK_FILE=$FIXTURE_DIR/host-bootstrap.lock \
 SLAB_MANAGEMENT_HOST_ROOT=$FIXTURE_DIR/host \
 SLAB_MANAGEMENT_OWNER_UID=$(id -u) \
 SLAB_MANAGEMENT_TRUST_ROOT=$FIXTURE_DIR \
+SLAB_SYSTEMCTL_BIN=$FIXTURE_DIR/systemctl-test \
+SLAB_TEST_SYSTEMCTL_CALLS=$SYSTEMCTL_CALLS \
   "$ROOT/installer/install.sh" --non-interactive --config "$CONFIG_FILE"
 
 second_secret_hash=$(sha256sum "$INSTALL_DIR/secrets/session-secret" | awk '{print $1}')
 [ "$first_secret_hash" = "$second_secret_hash" ]
+test "$(grep -c '^enable --now slab.service$' "$SYSTEMCTL_CALLS")" -eq 2
 
 cookies=$FIXTURE_DIR/cookies
 curl -fsS -c "$cookies" \
@@ -97,6 +118,7 @@ curl -fsS -c "$cookies" \
 jq -e '
   .status == "READY" and
   .phase == "admin_configured" and
+  (.completedSteps | index("lifecycle_configured") != null) and
   (.completedSteps | index("admin_configured") != null) and
   .lastKnownGood.status == "READY"
 ' \

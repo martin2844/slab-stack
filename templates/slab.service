@@ -1,0 +1,19 @@
+# slab-stack-managed: slab.service
+[Unit]
+Description=Slab Agent Workspace
+Documentation=https://github.com/martin2844/slab-stack
+Wants=network-online.target
+After=network-online.target docker.service
+Requires=docker.service
+PartOf=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/bin/slabctl stack start
+ExecStop=/usr/local/bin/slabctl stack stop
+TimeoutStartSec=300
+TimeoutStopSec=120
+
+[Install]
+WantedBy=multi-user.target
