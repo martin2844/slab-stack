@@ -106,9 +106,9 @@ slab_extract_stack_version() {
   version=$(sed -n \
     's/^[[:space:]]*"stackVersion"[[:space:]]*:[[:space:]]*"\([^"]*\)"[[:space:]]*,\{0,1\}[[:space:]]*$/\1/p' \
     "$manifest")
-  [ -n "$version" ] && [ "$(printf '%s\n' "$version" | wc -l)" -eq 1 ] || {
+  if [ -z "$version" ] || [ "$(printf '%s\n' "$version" | wc -l)" -ne 1 ]; then
     slab_preflight_error "cannot read one stackVersion from release manifest: $manifest."
     return 1
-  }
+  fi
   printf '%s\n' "$version"
 }
