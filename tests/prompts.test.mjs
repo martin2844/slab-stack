@@ -16,10 +16,20 @@ function run(functionCall, environment = {}) {
   });
 }
 
-test("accepts scoped absolute installation directories", () => {
-  for (const directory of ["/opt/slab", "/srv/slab", "/var/lib/slab-stack"]) {
-    const result = run(`slab_validate_install_directory ${directory}`);
-    assert.equal(result.status, 0, `${directory}: ${result.stderr}`);
+test("accepts scoped absolute installation directories under a trusted root", () => {
+  const trustedRoot = fs.mkdtempSync(path.join(os.tmpdir(), "slab-prompt-accepted-"));
+  const environment = {
+    SLAB_INSTALL_OWNER_UID: String(process.getuid()),
+    SLAB_INSTALL_TRUST_ROOT: trustedRoot,
+  };
+  try {
+    for (const directory of ["slab", "nested/slab", "data/slab-stack"]) {
+      const target = path.join(trustedRoot, directory);
+      const result = run(`slab_validate_install_directory ${target}`, environment);
+      assert.equal(result.status, 0, `${target}: ${result.stderr}`);
+    }
+  } finally {
+    fs.rmSync(trustedRoot, { recursive: true, force: true });
   }
 });
 
