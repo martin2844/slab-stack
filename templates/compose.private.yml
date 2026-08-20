@@ -1,0 +1,5 @@
+services:
+  slab-agents:
+    ports:
+      - "127.0.0.1:3009:3009"
+

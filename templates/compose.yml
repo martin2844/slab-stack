@@ -1,0 +1,221 @@
+name: slab
+
+x-service-defaults: &service-defaults
+  restart: unless-stopped
+  init: true
+  security_opt:
+    - no-new-privileges:true
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+
+networks:
+  edge:
+  control:
+
+services:
+  work-migrate:
+    image: ${SLAB_WORK_IMAGE:?SLAB_WORK_IMAGE is required}
+    command: ["node", "dist/db/migrate.js"]
+    networks: [control]
+    volumes:
+      - work_data:/data
+    secrets:
+      - work_api_key
+    environment:
+      TRACKER_DB_PATH: /data/slab.db
+      TRACKER_API_KEY_FILE: /run/secrets/work_api_key
+    restart: "no"
+
+  slab-api:
+    <<: *service-defaults
+    image: ${SLAB_WORK_IMAGE:?SLAB_WORK_IMAGE is required}
+    command: ["node", "dist/index.js"]
+    expose: ["6970"]
+    networks: [control]
+    volumes:
+      - work_data:/data
+    secrets:
+      - work_api_key
+    environment:
+      PORT: "6970"
+      TRACKER_DB_PATH: /data/slab.db
+      TRACKER_API_KEY_FILE: /run/secrets/work_api_key
+      SKIP_MIGRATIONS: "true"
+    depends_on:
+      work-migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:6970/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
+  slab-mcp:
+    <<: *service-defaults
+    image: ${SLAB_WORK_IMAGE:?SLAB_WORK_IMAGE is required}
+    command: ["node", "dist/mcp/server.js"]
+    expose: ["6969"]
+    networks: [control]
+    volumes:
+      - work_data:/data
+    secrets:
+      - work_api_key
+    environment:
+      TRACKER_MCP_PORT: "6969"
+      TRACKER_MCP_MODE: http
+      TRACKER_DB_PATH: /data/slab.db
+      TRACKER_API_KEY_FILE: /run/secrets/work_api_key
+      SKIP_MIGRATIONS: "true"
+    depends_on:
+      work-migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:6969/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
+  slab-docs:
+    <<: *service-defaults
+    image: ${SLAB_DOCS_IMAGE:?SLAB_DOCS_IMAGE is required}
+    expose: ["6980"]
+    networks: [control]
+    volumes:
+      - docs_data:/data
+    secrets:
+      - docs_api_key
+    environment:
+      HOST: 0.0.0.0
+      PORT: "6980"
+      DOCS_DB_PATH: /data/slab-docs.db
+      DOCS_API_KEY_FILE: /run/secrets/docs_api_key
+      NODE_ENV: production
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:6980/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
+  slab-email:
+    <<: *service-defaults
+    image: ${SLAB_EMAIL_IMAGE:?SLAB_EMAIL_IMAGE is required}
+    expose: ["6981"]
+    networks: [control]
+    volumes:
+      - email_data:/data
+    secrets:
+      - email_admin_key
+      - email_master_key
+    environment:
+      HOST: 0.0.0.0
+      PORT: "6981"
+      DATABASE_PATH: /data/slab-email.db
+      SLAB_EMAIL_ADMIN_KEY_FILE: /run/secrets/email_admin_key
+      SLAB_EMAIL_MASTER_KEY_FILE: /run/secrets/email_master_key
+      PUBLIC_ADMIN_ALLOWED_ORIGINS: slab-agents:3009
+      MCP_ALLOWED_ORIGINS: slab-agents:3009
+      MCP_ALLOWED_ORIGINS_HOSTS: slab-agents
+      NODE_ENV: production
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:6981/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
+  slab-runner:
+    <<: *service-defaults
+    image: ${SLAB_RUNNER_IMAGE:?SLAB_RUNNER_IMAGE is required}
+    expose: ["6990"]
+    networks: [control]
+    volumes:
+      - runner_codex:/var/lib/slab-runner/codex
+    secrets:
+      - runner_token
+    environment:
+      RUNNER_HOST: 0.0.0.0
+      RUNNER_PORT: "6990"
+      RUNNER_TOKEN_FILE: /run/secrets/runner_token
+      RUNNER_CODEX_HOME: /var/lib/slab-runner/codex
+      CODEX_BIN: /usr/local/bin/codex
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:6990/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 15s
+
+  slab-agents:
+    <<: *service-defaults
+    image: ${SLAB_AGENTS_IMAGE:?SLAB_AGENTS_IMAGE is required}
+    expose: ["3009"]
+    networks: [edge, control]
+    volumes:
+      - agents_data:/data
+    secrets:
+      - work_api_key
+      - docs_api_key
+      - runner_token
+      - email_admin_key
+      - session_secret
+    environment:
+      HOSTNAME: 0.0.0.0
+      PORT: "3009"
+      NODE_ENV: production
+      SLAB_WORKSPACE_DB: /data/slab-workspace.db
+      SLAB_PUBLIC_URL: ${SLAB_PUBLIC_URL:?SLAB_PUBLIC_URL is required}
+      CONTROL_PLANE_INTERNAL_URL: http://slab-agents:3009
+      WORK_MCP_URL: http://slab-mcp:6969/mcp
+      DOCS_MCP_URL: http://slab-docs:6980/mcp
+      RUNNER_URL: http://slab-runner:6990
+      SLAB_EMAIL_URL: http://slab-email:6981
+      TRACKER_API_KEY_FILE: /run/secrets/work_api_key
+      DOCS_API_KEY_FILE: /run/secrets/docs_api_key
+      RUNNER_TOKEN_FILE: /run/secrets/runner_token
+      SLAB_EMAIL_ADMIN_KEY_FILE: /run/secrets/email_admin_key
+      SLAB_SESSION_SECRET_FILE: /run/secrets/session_secret
+    depends_on:
+      slab-api:
+        condition: service_healthy
+      slab-mcp:
+        condition: service_healthy
+      slab-docs:
+        condition: service_healthy
+      slab-email:
+        condition: service_healthy
+      slab-runner:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3009/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 20s
+
+volumes:
+  agents_data:
+  work_data:
+  docs_data:
+  email_data:
+  runner_codex:
+
+secrets:
+  work_api_key:
+    file: ./secrets/work-api-key
+  docs_api_key:
+    file: ./secrets/docs-api-key
+  runner_token:
+    file: ./secrets/runner-token
+  email_admin_key:
+    file: ./secrets/email-admin-key
+  email_master_key:
+    file: ./secrets/email-master-key
+  session_secret:
+    file: ./secrets/session-secret
+

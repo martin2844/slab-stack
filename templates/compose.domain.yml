@@ -1,0 +1,31 @@
+services:
+  caddy:
+    restart: unless-stopped
+    image: ${CADDY_IMAGE:-caddy:2.10.2-alpine}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    networks: [edge]
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    environment:
+      SLAB_DOMAIN: ${SLAB_DOMAIN:?SLAB_DOMAIN is required}
+      ACME_EMAIL: ${ACME_EMAIL:-}
+    depends_on:
+      slab-agents:
+        condition: service_healthy
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  caddy_data:
+  caddy_config:
+

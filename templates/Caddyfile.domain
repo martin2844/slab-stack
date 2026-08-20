@@ -1,0 +1,21 @@
+{
+	email {$ACME_EMAIL}
+	admin off
+}
+
+{$SLAB_DOMAIN} {
+	encode zstd gzip
+
+	@internal_mcp path_regexp internal_mcp ^/api/integrations/[^/]+/mcp$
+	respond @internal_mcp 404
+
+	reverse_proxy slab-agents:3009
+
+	header {
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		X-Frame-Options DENY
+		-Server
+	}
+}
+

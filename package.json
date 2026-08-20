@@ -1,0 +1,14 @@
+{
+  "name": "slab-stack",
+  "version": "0.0.0-development",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/*.test.mjs",
+    "check": "./scripts/check.sh"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  }
+}
+

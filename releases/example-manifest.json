@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "stackVersion": "0.0.0-development",
+  "channel": "development",
+  "releasedAt": "2026-08-20T00:00:00Z",
+  "minimumSlabctlVersion": "0.0.0-development",
+  "images": {
+    "agents": {
+      "ref": "ghcr.io/example/slab-agents:v0.0.0-development",
+      "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "platforms": ["linux/amd64", "linux/arm64"]
+    },
+    "work": {
+      "ref": "ghcr.io/example/slab:v0.0.0-development",
+      "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "platforms": ["linux/amd64", "linux/arm64"]
+    },
+    "docs": {
+      "ref": "ghcr.io/example/slab-docs:v0.0.0-development",
+      "digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "platforms": ["linux/amd64", "linux/arm64"]
+    },
+    "email": {
+      "ref": "ghcr.io/example/slab-email:v0.0.0-development",
+      "digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "platforms": ["linux/amd64", "linux/arm64"]
+    },
+    "runner": {
+      "ref": "ghcr.io/example/slab-runner:v0.0.0-development",
+      "digest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "platforms": ["linux/amd64", "linux/arm64"]
+    }
+  },
+  "codexVersion": "unpublished-development-pin",
+  "migrationCompatibility": {
+    "minimumUpgradeStack": "0.0.0-development",
+    "minimumRollbackStack": "0.0.0-development"
+  }
+}
+
