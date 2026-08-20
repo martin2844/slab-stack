@@ -2,12 +2,14 @@
 
 slabctl_domain_name() {
   domain=$(sed -n 's/^SLAB_DOMAIN=//p' "$SLABCTL_ENVIRONMENT_FILE")
-  [ -n "$domain" ] && [ "$(printf '%s\n' "$domain" | wc -l)" -eq 1 ] &&
-    printf '%s\n' "$domain" |
-      grep -Eq '^([A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,63}$' || {
-        slabctl_error "installed domain is missing or invalid"
-        return 1
-      }
+  if [ -z "$domain" ] ||
+    [ "$(printf '%s\n' "$domain" | wc -l)" -ne 1 ] ||
+    ! printf '%s\n' "$domain" |
+      grep -Eq '^([A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,63}$'
+  then
+    slabctl_error "installed domain is missing or invalid"
+    return 1
+  fi
   printf '%s\n' "$domain"
 }
 
