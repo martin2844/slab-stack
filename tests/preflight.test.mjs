@@ -18,6 +18,7 @@ test("accepts the documented operating systems and architectures", () => {
   for (const fixture of [
     "ubuntu 22.04 x86_64",
     "ubuntu 24.04 amd64",
+    "ubuntu 26.04 amd64",
     "debian 12 aarch64",
     "debian 12.9 arm64",
   ]) {

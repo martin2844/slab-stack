@@ -26,6 +26,11 @@ public amd64/arm64 images for all five services and the tested Slab Runner +
 Codex CLI `0.148.0` pairing. No stable channel is published yet: the candidate
 must still pass the complete Compose and clean-VPS installation matrix.
 
+The installer currently supports Ubuntu 22.04, 24.04, and 26.04 LTS plus
+Debian 12 on amd64/arm64. On a clean host it installs Docker Engine and Compose
+V2 from Docker's official apt repository after verifying the repository key
+fingerprint.
+
 ## Validate
 
 ```bash

@@ -15,6 +15,7 @@ Required entry points:
 ```text
 installer/install.sh
 installer/lib/preflight.sh
+installer/lib/host-bootstrap.sh
 installer/lib/prompts.sh
 installer/lib/docker.sh
 installer/lib/secrets.sh
@@ -26,8 +27,14 @@ installer/lib/codex.sh
 The current candidate implements private/domain rendering, root-private
 secret generation, digest-pinned Compose reconciliation, administrator
 bootstrap, readiness, idempotent reruns, and Codex authentication through the
-installed `slabctl`. Docker package installation, the remaining lifecycle
-commands, systemd, and domain diagnostics remain subsequent plan gates.
+installed `slabctl`. On Ubuntu 22.04, 24.04, or 26.04 and Debian 12, a missing
+Docker Engine is installed from Docker's official apt repository after its
+signing-key fingerprint is verified. The remaining lifecycle commands,
+systemd, and domain diagnostics remain subsequent plan gates.
+
+The installer refuses to remove conflicting distribution Docker packages
+automatically. This keeps host package removal explicit; resolve the reported
+package list and rerun the same installation command.
 
 Interactive private install:
 

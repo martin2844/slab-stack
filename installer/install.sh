@@ -6,6 +6,8 @@ DEFAULT_MANIFEST=$BUNDLE_ROOT/releases/v0.1.0-candidate.3.json
 
 # shellcheck source=installer/lib/preflight.sh
 . "$BUNDLE_ROOT/installer/lib/preflight.sh"
+# shellcheck source=installer/lib/host-bootstrap.sh
+. "$BUNDLE_ROOT/installer/lib/host-bootstrap.sh"
 # shellcheck source=installer/lib/prompts.sh
 . "$BUNDLE_ROOT/installer/lib/prompts.sh"
 # shellcheck source=installer/lib/config.sh
@@ -139,10 +141,9 @@ else
   SLAB_COMPOSE_PROJECT_NAME=slab
 fi
 
-slab_run_preflight "$SLAB_INSTALL_DIRECTORY"
-slab_validate_release_manifest "$SLAB_MANIFEST"
+slab_run_bootstrap_preflight "$SLAB_INSTALL_DIRECTORY"
 slab_validate_compose_project_name "$SLAB_COMPOSE_PROJECT_NAME"
-requested_version=$(jq -r '.stackVersion' "$SLAB_MANIFEST")
+requested_version=$(slab_extract_stack_version "$SLAB_MANIFEST")
 SLAB_REQUESTED_VERSION=$requested_version
 
 slab_validate_install_target_state() {
@@ -185,13 +186,31 @@ if [ "$SLAB_NON_INTERACTIVE" -eq 0 ]; then
 fi
 
 if [ "$SLAB_DRY_RUN" -eq 1 ]; then
-  echo "Dry run complete. No files, secrets, containers, or data were changed."
+  if command -v jq >/dev/null 2>&1; then
+    slab_validate_release_manifest "$SLAB_MANIFEST"
+  else
+    echo "Dry run note: jq would be installed before full manifest validation."
+  fi
+  if slab_docker_is_ready; then
+    echo "Docker Engine and Compose V2 are available."
+  else
+    echo "Docker Engine and Compose V2 would be installed from Docker's official apt repository."
+  fi
+  echo "Dry run complete. No packages, files, secrets, containers, or data were changed."
   exit 0
 fi
 
 slab_acquire_install_lock "$SLAB_INSTALL_DIRECTORY"
 # Close the read/check-to-write race after acquiring the per-install lock.
 slab_validate_install_target_state
+slab_prepare_host
+slab_run_preflight "$SLAB_INSTALL_DIRECTORY"
+slab_validate_release_manifest "$SLAB_MANIFEST"
+validated_version=$(jq -r '.stackVersion' "$SLAB_MANIFEST")
+[ "$validated_version" = "$requested_version" ] || {
+  echo "Release manifest version changed during installation." >&2
+  exit 1
+}
 
 SLAB_INSTALL_STARTED=1
 SLAB_INSTALL_ATTEMPT_STARTED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
