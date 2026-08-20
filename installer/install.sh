@@ -30,6 +30,8 @@ DEFAULT_MANIFEST=$BUNDLE_ROOT/releases/v0.1.0-candidate.4.json
 . "$BUNDLE_ROOT/installer/lib/slabctl-install.sh"
 # shellcheck source=installer/lib/systemd.sh
 . "$BUNDLE_ROOT/installer/lib/systemd.sh"
+# shellcheck source=installer/lib/domain.sh
+. "$BUNDLE_ROOT/installer/lib/domain.sh"
 
 SLAB_NON_INTERACTIVE=0
 SLAB_DRY_RUN=0
@@ -289,6 +291,7 @@ slab_bootstrap_admin_if_needed "$SLAB_ADMIN_PASSWORD"
 SLAB_ADMIN_PASSWORD=
 
 codex_authenticated=0
+domain_tls_ready=0
 # Consumed by the sourced Codex management helper.
 # shellcheck disable=SC2034
 SLABCTL_EXPECTED_OWNER_UID=${SLAB_MANAGEMENT_OWNER_UID:-0}
@@ -296,9 +299,14 @@ slabctl_load_installation "$SLAB_INSTALL_DIRECTORY"
 if slabctl_codex_status >/dev/null 2>&1; then
   codex_authenticated=1
 fi
+if [ "$SLAB_ACCESS_MODE" = domain ] && slabctl_wait_for_domain_tls; then
+  domain_tls_ready=1
+fi
 completion_state=READY_NO_RUNTIME
 [ "$codex_authenticated" -eq 1 ] && completion_state=READY
-[ "$SLAB_ACCESS_MODE" = domain ] && completion_state=TLS_PENDING
+if [ "$SLAB_ACCESS_MODE" = domain ] && [ "$domain_tls_ready" -eq 0 ]; then
+  completion_state=TLS_PENDING
+fi
 SLAB_INSTALL_PHASE=admin_configured
 slab_write_install_state \
   "$SLAB_INSTALL_DIRECTORY" "$requested_version" "$SLAB_ACCESS_MODE" \
@@ -316,7 +324,11 @@ if [ "$SLAB_ACCESS_MODE" = private ]; then
   echo "Then open: $SLAB_PUBLIC_URL"
 else
   echo "Caddy is running for: $SLAB_PUBLIC_URL"
-  echo "DNS and TLS verification are still pending in this installer milestone."
+  if [ "$completion_state" = TLS_PENDING ]; then
+    echo "DNS or TLS is still pending. After fixing it, run: sudo slabctl domain verify"
+  else
+    echo "HTTPS is verified with a trusted certificate."
+  fi
 fi
 if [ "$codex_authenticated" -eq 1 ]; then
   echo "Codex authentication is active."

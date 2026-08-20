@@ -75,6 +75,7 @@ slabctl_load_installation() {
 
   SLABCTL_INSTALL_DIRECTORY=$install_directory
   SLABCTL_STATE_FILE=$state_file
+  SLABCTL_ACCESS_MODE=$access_mode
   SLABCTL_PROJECT_NAME=$project_name
   SLABCTL_ENVIRONMENT_FILE=$environment_file
   SLABCTL_OVERLAY_FILE=$overlay_file

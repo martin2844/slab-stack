@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
-function fixture(initialStatus = "READY_NO_RUNTIME") {
+function fixture(initialStatus = "READY_NO_RUNTIME", accessMode = "private") {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "slabctl-codex-"));
   const hostRoot = path.join(directory, "host");
   const installDirectory = path.join(directory, "installation");
@@ -35,20 +35,31 @@ function fixture(initialStatus = "READY_NO_RUNTIME") {
     path.join(root, "installer/lib/lifecycle.sh"),
     path.join(hostRoot, "usr/local/lib/slab-stack/lifecycle.sh"),
   );
+  fs.copyFileSync(
+    path.join(root, "installer/lib/domain.sh"),
+    path.join(hostRoot, "usr/local/lib/slab-stack/domain.sh"),
+  );
   fs.writeFileSync(
     path.join(hostRoot, "etc/slab/install-directory"),
     `${installDirectory}\n`,
   );
-  fs.writeFileSync(path.join(installDirectory, "config/access-mode"), "private\n");
-  fs.writeFileSync(path.join(installDirectory, "config/install.env"), "TEST=1\n");
+  fs.writeFileSync(path.join(installDirectory, "config/access-mode"), `${accessMode}\n`);
+  fs.writeFileSync(
+    path.join(installDirectory, "config/install.env"),
+    accessMode === "domain" ? "SLAB_DOMAIN=agents.example.com\n" : "SLAB_DOMAIN=\n",
+  );
   fs.writeFileSync(path.join(installDirectory, "compose.yml"), "services: {}\n");
   fs.writeFileSync(path.join(installDirectory, "compose.private.yml"), "services: {}\n");
+  fs.writeFileSync(path.join(installDirectory, "compose.domain.yml"), "services: {}\n");
   fs.writeFileSync(
     path.join(installDirectory, "config/install-state.json"),
     JSON.stringify({
       version: "0.1.0-candidate.4",
-      accessMode: "private",
-      publicUrl: "http://127.0.0.1:3009",
+      accessMode,
+      publicUrl:
+        accessMode === "domain"
+          ? "https://agents.example.com"
+          : "http://127.0.0.1:3009",
       projectName: "slab",
       status: initialStatus,
       phase: "admin_configured",
@@ -83,10 +94,18 @@ esac
 `,
     { mode: 0o755 },
   );
+  fs.writeFileSync(
+    path.join(binDirectory, "curl"),
+    `#!/bin/sh
+printf '%s\n' "$*" >> "$SLAB_TEST_CURL_CALLS"
+exit "\${SLAB_TEST_TLS_EXIT:-0}"
+`,
+    { mode: 0o755 },
+  );
   return { directory, hostRoot, installDirectory, binDirectory, calls, inputLength };
 }
 
-function run(current, args, input) {
+function run(current, args, input, environment = {}) {
   return spawnSync(path.join(current.hostRoot, "usr/local/bin/slabctl"), args, {
     encoding: "utf8",
     input,
@@ -98,6 +117,8 @@ function run(current, args, input) {
       SLABCTL_RUNNER_HEALTH_DELAY_SECONDS: "0",
       SLAB_TEST_DOCKER_CALLS: current.calls,
       SLAB_TEST_API_KEY_LENGTH: current.inputLength,
+      SLAB_TEST_CURL_CALLS: path.join(current.directory, "curl-calls"),
+      ...environment,
     },
   });
 }
@@ -133,6 +154,50 @@ test("stack lifecycle commands use the registered immutable Compose identity", (
     assert.match(calls, /--project-name slab .* config --quiet/);
     assert.match(calls, /--project-name slab .* up -d --remove-orphans/);
     assert.match(calls, /--project-name slab .* down --remove-orphans/);
+  } finally {
+    fs.rmSync(current.directory, { recursive: true, force: true });
+  }
+});
+
+test("domain verification promotes TLS_PENDING after trusted HTTPS is reachable", () => {
+  const current = fixture("TLS_PENDING", "domain");
+  try {
+    const result = run(current, ["domain", "verify"]);
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /HTTPS is verified for https:\/\/agents\.example\.com/);
+    const state = JSON.parse(
+      fs.readFileSync(
+        path.join(current.installDirectory, "config/install-state.json"),
+        "utf8",
+      ),
+    );
+    assert.equal(state.status, "READY");
+    assert.equal(state.lastKnownGood.status, "READY");
+    const curlCalls = fs.readFileSync(
+      path.join(current.directory, "curl-calls"),
+      "utf8",
+    );
+    assert.match(curlCalls, /--resolve agents\.example\.com:443:127\.0\.0\.1/);
+  } finally {
+    fs.rmSync(current.directory, { recursive: true, force: true });
+  }
+});
+
+test("domain verification preserves TLS_PENDING when HTTPS is unavailable", () => {
+  const current = fixture("TLS_PENDING", "domain");
+  try {
+    const result = run(current, ["domain", "verify"], undefined, {
+      SLAB_TEST_TLS_EXIT: "22",
+    });
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /HTTPS is not ready with a trusted certificate/);
+    const state = JSON.parse(
+      fs.readFileSync(
+        path.join(current.installDirectory, "config/install-state.json"),
+        "utf8",
+      ),
+    );
+    assert.equal(state.status, "TLS_PENDING");
   } finally {
     fs.rmSync(current.directory, { recursive: true, force: true });
   }

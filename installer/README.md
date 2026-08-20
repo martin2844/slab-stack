@@ -23,6 +23,7 @@ installer/lib/render.sh
 installer/lib/health.sh
 installer/lib/codex.sh
 installer/lib/lifecycle.sh
+installer/lib/domain.sh
 installer/lib/systemd.sh
 ```
 
@@ -91,6 +92,13 @@ The corresponding management entry points are also available directly:
 ```sh
 sudo slabctl stack status
 sudo slabctl stack restart
+```
+
+For a domain installation, verify that Caddy is serving a trusted certificate
+and update the installation state after DNS propagation:
+
+```sh
+sudo slabctl domain verify
 ```
 
 Stopping the service removes containers and project networks but never named
