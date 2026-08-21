@@ -136,3 +136,21 @@ sudo slabctl codex login --api-key
 Authentication is written only into the Runner's persistent Codex volume.
 After login/logout, `slabctl` restarts Runner so `codex app-server` reloads the
 credential state. A failed login does not roll back the healthy stack.
+
+## Proton Bridge
+
+On amd64, `slab-email` includes Proton's official headless Bridge backend. The
+interactive installer offers to connect a mailbox only after the core stack is
+healthy. Skipping is safe; configure it later from Slab Agents Settings or run:
+
+```sh
+sudo slabctl proton status
+sudo slabctl proton setup
+```
+
+The setup command reads the Proton password and any second factor without
+terminal echo. Those values pass directly to Bridge and are not written to the
+installer config, shell history, Compose environment, or Slab database. Only
+Bridge's generated mailbox credential is retained by `slab-email`, encrypted at
+rest. Non-interactive installs intentionally skip account login because secrets
+must not be placed in declarative installer configuration.

@@ -13,6 +13,7 @@ pointer_file=$slabctl_root/etc/slab/install-directory
 library_file=$slabctl_root/usr/local/lib/slab-stack/codex.sh
 lifecycle_file=$slabctl_root/usr/local/lib/slab-stack/lifecycle.sh
 domain_file=$slabctl_root/usr/local/lib/slab-stack/domain.sh
+proton_file=$slabctl_root/usr/local/lib/slab-stack/proton.sh
 
 [ "$(id -u)" -eq 0 ] || [ -n "$slabctl_root" ] || {
   echo "slabctl must run as root (use sudo)." >&2
@@ -34,8 +35,12 @@ if [ ! -f "$domain_file" ] || [ -L "$domain_file" ]; then
   echo "slabctl: domain library is missing or unsafe" >&2
   exit 1
 fi
+if [ ! -f "$proton_file" ] || [ -L "$proton_file" ]; then
+  echo "slabctl: Proton management library is missing or unsafe" >&2
+  exit 1
+fi
 for management_file in "$pointer_file" "$library_file" "$lifecycle_file" \
-  "$domain_file"
+  "$domain_file" "$proton_file"
 do
   [ "$(stat -c '%u' "$management_file")" -eq "$SLABCTL_EXPECTED_OWNER_UID" ] || {
     echo "slabctl: management metadata has an unexpected owner" >&2
@@ -55,6 +60,8 @@ SLABCTL_INSTALL_DIRECTORY=$(sed -n '1p' "$pointer_file")
 . "$lifecycle_file"
 # shellcheck source=installer/lib/domain.sh
 . "$domain_file"
+# shellcheck source=installer/lib/proton.sh
+. "$proton_file"
 slab_acquire_management_lock "$SLABCTL_INSTALL_DIRECTORY"
 slabctl_load_installation "$SLABCTL_INSTALL_DIRECTORY"
 
@@ -69,6 +76,8 @@ Usage:
   sudo slabctl codex login [--device-auth|--api-key]
   sudo slabctl codex status
   sudo slabctl codex logout
+  sudo slabctl proton setup
+  sudo slabctl proton status
 
 Device authorization is the default login method. API keys are accepted only
 through a hidden interactive prompt or stdin and are never written by slabctl.
@@ -102,6 +111,13 @@ case "${1:-}" in
         ;;
       status) [ "$#" -eq 2 ] || { slabctl_usage >&2; exit 2; }; slabctl_codex_status ;;
       logout) [ "$#" -eq 2 ] || { slabctl_usage >&2; exit 2; }; slabctl_codex_logout ;;
+      *) slabctl_usage >&2; exit 2 ;;
+    esac
+    ;;
+  proton)
+    case "${2:-}" in
+      setup) [ "$#" -eq 2 ] || { slabctl_usage >&2; exit 2; }; slabctl_proton_setup ;;
+      status) [ "$#" -eq 2 ] || { slabctl_usage >&2; exit 2; }; slabctl_proton_command -T --status ;;
       *) slabctl_usage >&2; exit 2 ;;
     esac
     ;;

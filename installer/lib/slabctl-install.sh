@@ -14,6 +14,7 @@ slab_install_management_cli() {
   library_path=$library_directory/codex.sh
   lifecycle_path=$library_directory/lifecycle.sh
   domain_path=$library_directory/domain.sh
+  proton_path=$library_directory/proton.sh
   pointer_path=$registry_directory/install-directory
 
   for directory in "$binary_directory" "$library_directory" "$registry_directory"; do
@@ -21,7 +22,7 @@ slab_install_management_cli() {
       "$directory" "$owner_uid" "$trust_root" || return 1
   done
 
-  for path in "$binary_path" "$library_path" "$lifecycle_path" "$domain_path" "$pointer_path"; do
+  for path in "$binary_path" "$library_path" "$lifecycle_path" "$domain_path" "$proton_path" "$pointer_path"; do
     [ ! -L "$path" ] || {
       echo "Refusing symbolic-link management path: $path" >&2
       return 1
@@ -53,18 +54,21 @@ slab_install_management_cli() {
   temporary_library=$library_directory/.codex.sh.$$
   temporary_lifecycle=$library_directory/.lifecycle.sh.$$
   temporary_domain=$library_directory/.domain.sh.$$
+  temporary_proton=$library_directory/.proton.sh.$$
   temporary_pointer=$registry_directory/.install-directory.$$
   cp "$bundle_root/bin/slabctl" "$temporary_binary"
   cp "$bundle_root/installer/lib/codex.sh" "$temporary_library"
   cp "$bundle_root/installer/lib/lifecycle.sh" "$temporary_lifecycle"
   cp "$bundle_root/installer/lib/domain.sh" "$temporary_domain"
+  cp "$bundle_root/installer/lib/proton.sh" "$temporary_proton"
   printf '%s\n' "$install_directory" > "$temporary_pointer"
   chmod 0755 "$temporary_binary"
   chmod 0644 "$temporary_library" "$temporary_lifecycle" "$temporary_domain" \
-    "$temporary_pointer"
+    "$temporary_proton" "$temporary_pointer"
   mv "$temporary_binary" "$binary_path"
   mv "$temporary_library" "$library_path"
   mv "$temporary_lifecycle" "$lifecycle_path"
   mv "$temporary_domain" "$domain_path"
+  mv "$temporary_proton" "$proton_path"
   mv "$temporary_pointer" "$pointer_path"
 }

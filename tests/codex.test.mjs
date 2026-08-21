@@ -39,6 +39,10 @@ function fixture(initialStatus = "READY_NO_RUNTIME", accessMode = "private") {
     path.join(root, "installer/lib/domain.sh"),
     path.join(hostRoot, "usr/local/lib/slab-stack/domain.sh"),
   );
+  fs.copyFileSync(
+    path.join(root, "installer/lib/proton.sh"),
+    path.join(hostRoot, "usr/local/lib/slab-stack/proton.sh"),
+  );
   fs.writeFileSync(
     path.join(hostRoot, "etc/slab/install-directory"),
     `${installDirectory}\n`,
@@ -87,6 +91,8 @@ case "$*" in
   *" config --quiet") exit 0 ;;
   *" up -d --remove-orphans") exit 0 ;;
   *" down --remove-orphans") exit 0 ;;
+  *"exec -T slab-email node dist/proton/setup-cli.js --status") printf 'Managed Proton Bridge v3.26.0: ready; 0 account(s).\\n' ;;
+  *"exec slab-email node dist/proton/setup-cli.js") printf 'Connected owner@proton.me.\\n' ;;
   *" ps") printf 'slab-agents running healthy\\n' ;;
   "inspect runner-container "*) printf 'healthy\\n' ;;
   *) printf 'unexpected docker call: %s\\n' "$*" >&2; exit 91 ;;
@@ -122,6 +128,22 @@ function run(current, args, input, environment = {}) {
     },
   });
 }
+
+test("Proton management uses the email container without exposing credentials in argv", () => {
+  const current = fixture();
+  try {
+    const status = run(current, ["proton", "status"]);
+    assert.equal(status.status, 0, status.stderr);
+    assert.match(status.stdout, /Managed Proton Bridge v3\.26\.0/);
+    const setup = run(current, ["proton", "setup"]);
+    assert.equal(setup.status, 0, setup.stderr);
+    const calls = fs.readFileSync(current.calls, "utf8");
+    assert.match(calls, /exec slab-email node dist\/proton\/setup-cli\.js/);
+    assert.doesNotMatch(calls, /password|two-factor/i);
+  } finally {
+    fs.rmSync(current.directory, { recursive: true, force: true });
+  }
+});
 
 test("Codex status inspects the Runner-owned persistent Codex home", () => {
   const current = fixture();

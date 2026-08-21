@@ -32,6 +32,8 @@ DEFAULT_MANIFEST=$BUNDLE_ROOT/releases/v0.1.0-candidate.9.json
 . "$BUNDLE_ROOT/installer/lib/systemd.sh"
 # shellcheck source=installer/lib/domain.sh
 . "$BUNDLE_ROOT/installer/lib/domain.sh"
+# shellcheck source=installer/lib/proton.sh
+. "$BUNDLE_ROOT/installer/lib/proton.sh"
 
 SLAB_NON_INTERACTIVE=0
 SLAB_DRY_RUN=0
@@ -335,6 +337,22 @@ if [ "$codex_authenticated" -eq 1 ]; then
 else
   echo "Codex authentication is the next setup step."
   echo "Run: sudo slabctl codex login"
+fi
+
+if [ "$SLAB_NON_INTERACTIVE" -eq 0 ] &&
+  slabctl_proton_available &&
+  ! slabctl_proton_configured
+then
+  printf 'Connect a Proton mailbox now? [y/N]: ' > /dev/tty
+  IFS= read -r configure_proton < /dev/tty
+  case "$configure_proton" in
+    y | Y | yes | YES)
+      if ! slabctl_proton_setup; then
+        echo "Proton setup was not completed. The healthy installation remains available." >&2
+        echo "Retry later with: sudo slabctl proton setup" >&2
+      fi
+      ;;
+  esac
 fi
 
 if [ "$SLAB_NON_INTERACTIVE" -eq 0 ] && [ "$codex_authenticated" -eq 0 ]; then
