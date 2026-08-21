@@ -139,7 +139,8 @@ credential state. A failed login does not roll back the healthy stack.
 
 ## Proton Bridge
 
-On amd64, `slab-email` includes Proton's official headless Bridge backend. The
+On amd64 and arm64, `slab-email` includes Proton's headless Bridge backend built
+from its verified official source with a patched Go toolchain. The
 interactive installer offers to connect a mailbox only after the core stack is
 healthy. Skipping is safe; configure it later from Slab Agents Settings or run:
 
