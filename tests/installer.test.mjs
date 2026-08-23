@@ -149,11 +149,11 @@ test("rejects a rerun that changes the persisted Compose project identity", () =
   const fixture = createFixture();
   try {
     fs.mkdirSync(path.join(fixture.installDirectory, "config"), { recursive: true });
-    fs.writeFileSync(path.join(fixture.installDirectory, "VERSION"), "0.1.0-candidate.11\n");
+    fs.writeFileSync(path.join(fixture.installDirectory, "VERSION"), "0.1.0-candidate.12\n");
     fs.writeFileSync(
       path.join(fixture.installDirectory, "config", "install-state.json"),
       JSON.stringify({
-        version: "0.1.0-candidate.11",
+        version: "0.1.0-candidate.12",
         accessMode: "private",
         publicUrl: "http://127.0.0.1:39209",
         projectName: "slab-original",
@@ -186,11 +186,11 @@ esac
   );
   try {
     fs.mkdirSync(path.join(fixture.installDirectory, "config"), { recursive: true });
-    fs.writeFileSync(path.join(fixture.installDirectory, "VERSION"), "0.1.0-candidate.11\n");
+    fs.writeFileSync(path.join(fixture.installDirectory, "VERSION"), "0.1.0-candidate.12\n");
     fs.writeFileSync(
       path.join(fixture.installDirectory, "config", "install-state.json"),
       JSON.stringify({
-        version: "0.1.0-candidate.11",
+        version: "0.1.0-candidate.12",
         accessMode: "private",
         publicUrl: "http://127.0.0.1:39209",
         projectName: "slab-dry-run",

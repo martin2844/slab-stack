@@ -271,7 +271,7 @@ test("packages the same manifest reproducibly with only installer runtime files"
   assert.match(listing, /templates\/compose\.yml/);
   assert.match(listing, /bin\/slabctl/);
   assert.match(listing, /contracts\/release-signing-public\.pem/);
-  assert.match(listing, /releases\/v0\.1\.0-candidate\.11\.json/);
+  assert.match(listing, /releases\/v0\.1\.0-candidate\.12\.json/);
   assert.doesNotMatch(listing, /node_modules|\.git\//);
   const checksumLine = fs.readFileSync(path.join(first, `${asset}.sha256`), "utf8");
   assert.equal(checksumLine, `${sha256(path.join(first, asset))}  ${asset}\n`);
