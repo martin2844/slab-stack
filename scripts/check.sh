@@ -59,6 +59,16 @@ jq -e \
    .manifestSha256 == $expected_sha256' \
   "$ROOT/channels/candidate.json" >/dev/null
 
+stable_manifest=$ROOT/releases/v0.1.0.json
+stable_manifest_sha256=$(sha256sum "$stable_manifest" | awk '{print $1}')
+jq -e \
+  --arg expected_sha256 "$stable_manifest_sha256" \
+  '.schemaVersion == 1 and
+   .channel == "stable" and
+   .stackVersion == "0.1.0" and
+   .manifestSha256 == $expected_sha256' \
+  "$ROOT/channels/stable.json" >/dev/null
+
 public_key_der=$FIXTURE_DIR/release-signing-public.der
 openssl pkey -pubin -in "$ROOT/contracts/release-signing-public.pem" \
   -outform DER -out "$public_key_der" >/dev/null 2>&1

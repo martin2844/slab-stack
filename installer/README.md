@@ -4,10 +4,11 @@
 from the small public bootstrap in `bootstrap/install.sh`: the public entry
 point downloads and verifies a release bundle before invoking this script.
 
-The eventual stable `install.sh` endpoint will only download a versioned bundle,
-verify its checksum and detached Ed25519 signature, and execute this installer. Keeping
-the public bootstrap small makes it reviewable and keeps installation logic
-versioned with the stack manifest.
+The public stable `install.sh` asset only downloads a versioned bundle, verifies
+its checksum and detached Ed25519 signature, and executes this installer.
+Keeping the public bootstrap small makes it reviewable and keeps installation
+logic versioned with the stack manifest. A convenience install domain remains a
+separate distribution concern.
 
 Required entry points:
 
@@ -27,14 +28,14 @@ installer/lib/backup.sh
 installer/lib/systemd.sh
 ```
 
-The current candidate implements private/domain rendering, root-private
+The current release implements private/domain rendering, root-private
 secret generation, digest-pinned Compose reconciliation, administrator
 bootstrap, readiness, idempotent reruns, Codex authentication through the
 installed `slabctl`, and a managed `slab.service` lifecycle. On Ubuntu 22.04,
 24.04, or 26.04 and Debian 12, a missing Docker Engine is installed from
 Docker's official apt repository after its signing-key fingerprint is
-verified. Domain diagnostics and the remaining management commands are
-subsequent plan gates.
+verified. Stable support is intentionally narrower than recognized preview
+hosts; see `docs/compatibility.md` in the distribution repository.
 
 The installer refuses to remove conflicting distribution Docker packages
 automatically. This keeps host package removal explicit; resolve the reported

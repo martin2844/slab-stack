@@ -175,3 +175,23 @@ test("candidate channel points to the exact reviewed manifest", () => {
     `https://github.com/martin2844/slab-stack/releases/download/v${candidate.stackVersion}/v${candidate.stackVersion}.json`,
   );
 });
+
+test("stable channel points to the exact reviewed manifest", () => {
+  const stablePath = path.join(root, "releases/v0.1.0.json");
+  const stable = JSON.parse(fs.readFileSync(stablePath, "utf8"));
+  const channel = JSON.parse(
+    fs.readFileSync(path.join(root, "channels/stable.json"), "utf8"),
+  );
+  const manifestSha256 = crypto
+    .createHash("sha256")
+    .update(fs.readFileSync(stablePath))
+    .digest("hex");
+  assert.equal(channel.schemaVersion, 1);
+  assert.equal(channel.channel, "stable");
+  assert.equal(channel.stackVersion, stable.stackVersion);
+  assert.equal(channel.manifestSha256, manifestSha256);
+  assert.equal(
+    channel.manifestUrl,
+    `https://github.com/martin2844/slab-stack/releases/download/v${stable.stackVersion}/v${stable.stackVersion}.json`,
+  );
+});

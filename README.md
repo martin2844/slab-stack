@@ -20,11 +20,11 @@ The implementation source of truth is:
 
 ## Current status
 
-The current immutable stack candidate is recorded in
-[`releases/v0.1.0-candidate.19.json`](releases/v0.1.0-candidate.19.json). It pins
+The first stable stack release is recorded in
+[`releases/v0.1.0.json`](releases/v0.1.0.json). The next-release channel remains
+[`releases/v0.1.0-candidate.19.json`](releases/v0.1.0-candidate.19.json). Both pin
 public amd64/arm64 images for all five services and the tested Slab Runner +
-Codex CLI `0.148.0` pairing. No stable channel is published yet: the candidate
-must still pass the complete Compose and clean-VPS installation matrix.
+Codex CLI `0.148.0` pairing.
 
 The candidate also has a versioned distribution contract. A release tag builds
 a reproducible tarball, signs its SHA-256 sidecar and channel pointer with the
@@ -34,10 +34,13 @@ assets are immutable; dedicated channel releases hold signed mutable discovery
 pointers. The bootstrap embeds only the public trust root and refuses unsigned,
 modified, path-traversing, or symlink-containing metadata and bundles.
 
-The installer currently supports Ubuntu 22.04, 24.04, and 26.04 LTS plus
-Debian 12 on amd64/arm64. On a clean host it installs Docker Engine and Compose
-V2 from Docker's official apt repository after verifying the repository key
-fingerprint.
+The stable support matrix covers Ubuntu 24.04 on amd64/arm64 and Ubuntu 26.04
+on amd64. The installer also recognizes Ubuntu 22.04 and Debian 12 as preview
+hosts. See the
+[`v0.1.0` compatibility matrix](https://github.com/martin2844/slab-stack/blob/v0.1.0/docs/compatibility.md)
+for the exact tested hosts and topology evidence. On a clean host Slab installs
+Docker Engine and Compose V2 from Docker's official apt repository after
+verifying the repository key fingerprint.
 
 The installed stack is registered as `slab.service`. systemd starts it after
 Docker and the network are available, stops it before Docker shuts down, and
@@ -95,8 +98,17 @@ the protected `SLAB_RELEASE_SIGNING_KEY_PEM` GitHub Actions secret. CI derives
 the public key from that secret and refuses to publish unless it equals
 [`contracts/release-signing-public.pem`](contracts/release-signing-public.pem).
 
-Until the stable channel is promoted, a reviewed candidate can be installed
-explicitly with the release bootstrap:
+Download and inspect the stable bootstrap, then run it as root:
+
+```bash
+curl --proto '=https' --tlsv1.2 --fail --silent --show-error --location \
+  --output install.sh \
+  https://github.com/martin2844/slab-stack/releases/download/v0.1.0/install.sh
+less install.sh
+sudo sh install.sh
+```
+
+A reviewed candidate can still be installed explicitly:
 
 ```bash
 sudo sh install.sh --version 0.1.0-candidate.19

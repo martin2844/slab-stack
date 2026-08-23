@@ -7,13 +7,23 @@ on:
         description: Exact signed release version to install
         required: true
         type: string
+      use_stable_channel:
+        description: Resolve the install through the signed stable channel
+        required: false
+        default: false
+        type: boolean
   workflow_dispatch:
     inputs:
       release_version:
-        description: Exact signed release version to install
+        description: Expected signed release version
         required: true
         default: 0.1.0-candidate.19
         type: string
+      use_stable_channel:
+        description: Resolve the install through the signed stable channel
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -35,6 +45,7 @@ jobs:
     timeout-minutes: 30
     env:
       SLAB_RELEASE_VERSION: ${{ inputs.release_version }}
+      SLAB_USE_STABLE_CHANNEL: ${{ inputs.use_stable_channel }}
     steps:
       - name: Verify native host
         shell: bash
@@ -79,7 +90,14 @@ jobs:
           curl --proto '=https' --tlsv1.2 --fail --silent --show-error \
             --location --output /tmp/slab-install.sh \
             "https://github.com/${GITHUB_REPOSITORY}/releases/download/v${SLAB_RELEASE_VERSION}/install.sh"
-          sudo sh /tmp/slab-install.sh --version "$SLAB_RELEASE_VERSION" -- \
+          release_selection=(--version "$SLAB_RELEASE_VERSION")
+          if [[ "$SLAB_USE_STABLE_CHANNEL" == true ]]; then
+            release_selection=(--channel stable)
+          fi
+          printf '%s\n' "${release_selection[@]}" |
+            sudo tee /root/slab-matrix/release-selection >/dev/null
+          sudo chmod 0600 /root/slab-matrix/release-selection
+          sudo sh /tmp/slab-install.sh "${release_selection[@]}" -- \
             --non-interactive --config /root/slab-matrix/install.conf
           printf '%s\n' "$admin_password" |
             sudo tee /root/slab-matrix/qa-password >/dev/null
@@ -114,11 +132,13 @@ jobs:
               --data-binary @- http://127.0.0.1:3009/api/agents |
             jq -er .data.id)
 
-          sudo sh /tmp/slab-install.sh --version "$SLAB_RELEASE_VERSION" -- \
+          mapfile -t release_selection </root/slab-matrix/release-selection
+          sudo sh /tmp/slab-install.sh "${release_selection[@]}" -- \
             --non-interactive --config /root/slab-matrix/install.conf
           curl --fail --silent --show-error \
             --cookie /tmp/slab-cookies http://127.0.0.1:3009/api/agents |
             jq -e --arg id "$agent_id" 'any(.data[]; .id == $id)' >/dev/null
           sudo slabctl doctor --json |
             jq -e '.installedVersion == env.SLAB_RELEASE_VERSION and all(.checks[]; .status != "fail")' >/dev/null
-          sudo rm -f /root/slab-matrix/qa-password /tmp/slab-cookies
+          sudo rm -f /root/slab-matrix/qa-password \
+            /root/slab-matrix/release-selection /tmp/slab-cookies
