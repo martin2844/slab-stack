@@ -10,7 +10,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const bootstrap = path.join(root, "bootstrap/install.sh");
 const packager = path.join(root, "scripts/package-release.sh");
-const candidate = path.join(root, "releases/v0.1.0-candidate.16.json");
+const candidate = path.join(root, "releases/v0.1.0-candidate.17.json");
 
 function command(command, args, options = {}) {
   const result = spawnSync(command, args, { encoding: "utf8", ...options });
@@ -264,17 +264,31 @@ test("packages the same manifest reproducibly with only installer runtime files"
   assert.equal(firstResult.status, 0, firstResult.stderr);
   assert.equal(secondResult.status, 0, secondResult.stderr);
 
-  const asset = "slab-stack-0.1.0-candidate.16.tar.gz";
+  const asset = "slab-stack-0.1.0-candidate.17.tar.gz";
   assert.equal(sha256(path.join(first, asset)), sha256(path.join(second, asset)));
   const listing = command("tar", ["-tzf", path.join(first, asset)]).stdout;
   assert.match(listing, /installer\/install\.sh/);
   assert.match(listing, /templates\/compose\.yml/);
   assert.match(listing, /bin\/slabctl/);
   assert.match(listing, /contracts\/release-signing-public\.pem/);
-  assert.match(listing, /releases\/v0\.1\.0-candidate\.16\.json/);
+  assert.match(listing, /releases\/v0\.1\.0-candidate\.17\.json/);
   assert.doesNotMatch(listing, /node_modules|\.git\//);
   const checksumLine = fs.readFileSync(path.join(first, `${asset}.sha256`), "utf8");
   assert.equal(checksumLine, `${sha256(path.join(first, asset))}  ${asset}\n`);
+});
+
+test("refuses to package a release timestamped in the future", (t) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "slab-package-future-"));
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const manifest = JSON.parse(fs.readFileSync(candidate, "utf8"));
+  manifest.releasedAt = "2999-01-01T00:00:00Z";
+  const manifestPath = path.join(directory, "manifest.json");
+  fs.writeFileSync(manifestPath, JSON.stringify(manifest));
+  const result = command(packager, [manifestPath, path.join(directory, "dist")], {
+    cwd: root,
+  });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /more than five minutes in the future/);
 });
 
 test("keeps the embedded release trust root equal to the reviewed public key", () => {

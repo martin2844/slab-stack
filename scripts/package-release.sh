@@ -67,7 +67,16 @@ find "$staging_root" -type f -exec chmod 0644 {} \;
 chmod 0755 "$staging_root/installer/install.sh" "$staging_root/bin/slabctl"
 
 released_at=$(jq -r '.releasedAt' "$manifest")
-source_date_epoch=${SOURCE_DATE_EPOCH:-$(date -u -d "$released_at" +%s)}
+released_at_epoch=$(date -u -d "$released_at" +%s) || {
+  echo "Release timestamp is invalid: $released_at" >&2
+  exit 1
+}
+now_epoch=$(date -u +%s)
+[ "$released_at_epoch" -le "$((now_epoch + 300))" ] || {
+  echo "Release timestamp is more than five minutes in the future: $released_at" >&2
+  exit 1
+}
+source_date_epoch=${SOURCE_DATE_EPOCH:-$released_at_epoch}
 archive_temporary=$output_directory/.$asset_name.tmp.$$
 archive=$output_directory/$asset_name
 checksum_temporary=$output_directory/.$asset_name.sha256.tmp.$$
