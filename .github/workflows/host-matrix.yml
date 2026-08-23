@@ -56,7 +56,7 @@ jobs:
             sudo tee /root/slab-matrix/admin-password >/dev/null
           sudo chmod 0600 /root/slab-matrix/admin-password
           sudo tee /root/slab-matrix/install.conf >/dev/null <<'EOF'
-          SLAB_INSTALL_DIRECTORY=/opt/slab
+          SLAB_INSTALL_DIRECTORY=/srv/slab
           SLAB_ACCESS_MODE=private
           SLAB_PRIVATE_BIND_IP=127.0.0.1
           SLAB_PRIVATE_PORT=3009
@@ -78,8 +78,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(sudo sed -n '1p' /opt/slab/VERSION)" = "$SLAB_RELEASE_VERSION"
-          test "$(sudo jq -r .status /opt/slab/config/install-state.json)" = READY_NO_RUNTIME
+          test "$(sudo sed -n '1p' /srv/slab/VERSION)" = "$SLAB_RELEASE_VERSION"
+          test "$(sudo jq -r .status /srv/slab/config/install-state.json)" = READY_NO_RUNTIME
           test "$(systemctl is-active slab.service)" = active
           curl --fail --silent --show-error http://127.0.0.1:3009/health >/dev/null
           curl --fail --silent --show-error http://127.0.0.1:3009/ready >/dev/null
