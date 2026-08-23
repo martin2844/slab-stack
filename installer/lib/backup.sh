@@ -837,6 +837,17 @@ EOF
     slabctl_error "data restored, but agent dispatch maintenance could not be cleared"
     exit 1
   fi
+  restored_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  if ! slabctl_write_backup_state "$archive" "$archive_sha256" "$restored_at"; then
+    if command -v slabctl_update_enter_maintenance >/dev/null 2>&1; then
+      slabctl_update_enter_maintenance >/dev/null 2>&1 || true
+    fi
+    slabctl_restore_write_state RECOVERY_REQUIRED "$archive_sha256" \
+      "Data was restored and services are healthy, but verified-backup metadata could not be persisted. Agent dispatch was paused." \
+      "$reauthentication_required" || true
+    slabctl_error "restore succeeded, but verified-backup metadata could not be persisted; agent dispatch was paused again"
+    exit 1
+  fi
   if ! slabctl_restore_write_state RESTORED "$archive_sha256" \
     "Backup restored and services reached health after migrations." \
     "$reauthentication_required"

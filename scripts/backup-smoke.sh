@@ -5,7 +5,7 @@ ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 FIXTURE_DIRECTORY=$(mktemp -d "${TMPDIR:-/tmp}/slab-backup-smoke.XXXXXX")
 PROJECT_NAME=slabbackupsmoke$$
 DEFAULT_RUNTIME_IMAGE=$(jq -r '.images.agents.ref + "@" + .images.agents.digest' \
-  "$ROOT/releases/v0.1.0-candidate.17.json")
+  "$ROOT/releases/v0.1.0-candidate.18.json")
 RUNTIME_IMAGE=${SLAB_BACKUP_SMOKE_IMAGE:-$DEFAULT_RUNTIME_IMAGE}
 VOLUMES="agents_data runner_codex"
 
@@ -28,12 +28,12 @@ BACKUP_DIRECTORY=$FIXTURE_DIRECTORY/backups
 mkdir -p "$INSTALL_DIRECTORY/config" "$INSTALL_DIRECTORY/secrets" "$BACKUP_DIRECTORY"
 chmod 0700 "$INSTALL_DIRECTORY/secrets" "$BACKUP_DIRECTORY"
 
-cp "$ROOT/releases/v0.1.0-candidate.17.json" \
+cp "$ROOT/releases/v0.1.0-candidate.18.json" \
   "$INSTALL_DIRECTORY/release-manifest.json"
 for metadata_name in compose.yml compose.private.yml compose.domain.yml Caddyfile; do
   printf 'fixture: %s\n' "$metadata_name" > "$INSTALL_DIRECTORY/$metadata_name"
 done
-printf '0.1.0-candidate.17\n' > "$INSTALL_DIRECTORY/VERSION"
+printf '0.1.0-candidate.18\n' > "$INSTALL_DIRECTORY/VERSION"
 printf 'private\n' > "$INSTALL_DIRECTORY/config/access-mode"
 printf 'SLAB_PUBLIC_URL=http://127.0.0.1:3009\n' \
   > "$INSTALL_DIRECTORY/config/install.env"

@@ -543,6 +543,11 @@ test("successful restore clears maintenance restored from a pre-update backup", 
     ),
   );
   assert.equal(state.status, "RESTORED");
+  const backupState = JSON.parse(
+    fs.readFileSync(path.join(installation, "config/backup-state.json"), "utf8"),
+  );
+  assert.equal(backupState.lastSuccessfulBackup.archive, archive);
+  assert.match(backupState.lastSuccessfulBackup.sha256, /^[a-f0-9]{64}$/);
 });
 
 test("v2 restore persists external providers that require host reauthentication", (t) => {
@@ -586,6 +591,46 @@ test("v2 restore persists external providers that require host reauthentication"
     fs.readFileSync(path.join(installation, "config/restore-state.json"), "utf8"),
   );
   assert.deepEqual(state.reauthenticationRequired, externalAuth);
+});
+
+test("restore pauses dispatch when verified-backup state cannot be persisted", (t) => {
+  const { archive, directory } = backupFixture(t);
+  const installation = path.join(directory, "installation");
+  const operations = path.join(directory, "operations.txt");
+  fs.mkdirSync(path.join(installation, "config"), { recursive: true });
+  fs.mkdirSync(path.join(installation, "secrets"), { recursive: true });
+  fs.writeFileSync(path.join(installation, "VERSION"), "0.1.0-candidate.10\n");
+  const result = backupShell(
+    [
+      'slabctl_error() { echo "slabctl: $*" >&2; return 1; }',
+      "slabctl_volume_names() { echo agents_data; }",
+      "slabctl_resolve_volume() { echo slab_agents_data; }",
+      "slabctl_backup_runtime_image() { echo fixture-image; }",
+      'slabctl_compose() { [ "$1" = ps ] && return 0; }',
+      'docker() { [ "$1" = run ]; }',
+      'OPERATIONS="$4"',
+      'slabctl_stack_start() { echo start >> "$OPERATIONS"; }',
+      "slabctl_wait_for_healthy_stack() { :; }",
+      'slabctl_update_exit_maintenance() { echo maintenance-off >> "$OPERATIONS"; }',
+      'slabctl_update_enter_maintenance() { echo maintenance-on >> "$OPERATIONS"; }',
+      "slabctl_write_backup_state() { return 1; }",
+      'SLABCTL_INSTALL_DIRECTORY="$2"',
+      "SLABCTL_PROJECT_NAME=slab",
+      'slabctl_restore_archive "$3" 0 1',
+    ].join("; "),
+    [installation, archive, operations],
+  );
+  assert.notEqual(result.status, 0);
+  assert.deepEqual(fs.readFileSync(operations, "utf8").trim().split("\n"), [
+    "start",
+    "maintenance-off",
+    "maintenance-on",
+  ]);
+  const state = JSON.parse(
+    fs.readFileSync(path.join(installation, "config/restore-state.json"), "utf8"),
+  );
+  assert.equal(state.status, "RECOVERY_REQUIRED");
+  assert.match(state.message, /metadata could not be persisted/);
 });
 
 test("backup output is private from the first archive write", (t) => {
