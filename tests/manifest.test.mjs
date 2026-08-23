@@ -177,7 +177,7 @@ test("candidate channel points to the exact reviewed manifest", () => {
 });
 
 test("stable channel points to the exact reviewed manifest", () => {
-  const stablePath = path.join(root, "releases/v0.1.0.json");
+  const stablePath = path.join(root, "releases/v0.1.1.json");
   const stable = JSON.parse(fs.readFileSync(stablePath, "utf8"));
   const channel = JSON.parse(
     fs.readFileSync(path.join(root, "channels/stable.json"), "utf8"),

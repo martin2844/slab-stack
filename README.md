@@ -20,8 +20,8 @@ The implementation source of truth is:
 
 ## Current status
 
-The first stable stack release is recorded in
-[`releases/v0.1.0.json`](releases/v0.1.0.json). The next-release channel remains
+The first promoted stable stack release is recorded in
+[`releases/v0.1.1.json`](releases/v0.1.1.json). The next-release channel remains
 [`releases/v0.1.0-candidate.19.json`](releases/v0.1.0-candidate.19.json). Both pin
 public amd64/arm64 images for all five services and the tested Slab Runner +
 Codex CLI `0.148.0` pairing.
@@ -37,7 +37,7 @@ modified, path-traversing, or symlink-containing metadata and bundles.
 The stable support matrix covers Ubuntu 24.04 on amd64/arm64 and Ubuntu 26.04
 on amd64. The installer also recognizes Ubuntu 22.04 and Debian 12 as preview
 hosts. See the
-[`v0.1.0` compatibility matrix](https://github.com/martin2844/slab-stack/blob/v0.1.0/docs/compatibility.md)
+  [`v0.1.1` compatibility matrix](https://github.com/martin2844/slab-stack/blob/v0.1.1/docs/compatibility.md)
 for the exact tested hosts and topology evidence. On a clean host Slab installs
 Docker Engine and Compose V2 from Docker's official apt repository after
 verifying the repository key fingerprint.
@@ -103,7 +103,7 @@ Download and inspect the stable bootstrap, then run it as root:
 ```bash
 curl --proto '=https' --tlsv1.2 --fail --silent --show-error --location \
   --output install.sh \
-  https://github.com/martin2844/slab-stack/releases/download/v0.1.0/install.sh
+  https://github.com/martin2844/slab-stack/releases/download/v0.1.1/install.sh
 less install.sh
 sudo sh install.sh
 ```

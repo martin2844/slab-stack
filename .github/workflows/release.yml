@@ -35,7 +35,9 @@ jobs:
           case "$channel" in
             candidate) prerelease=true ;;
             drill) prerelease=true ;;
-            stable) prerelease=false ;;
+            # Stable assets are provisional until the native host matrix passes.
+            # The publish-channel job promotes the GitHub release afterwards.
+            stable) prerelease=true ;;
             *) echo "Only candidate, stable, and drill manifests can be released." >&2; exit 1 ;;
           esac
           printf 'version=%s\nmanifest=%s\nchannel=%s\nprerelease=%s\n' \
@@ -127,6 +129,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          if [[ "$CHANNEL" == stable ]]; then
+            release_id=$(gh api \
+              "repos/$GITHUB_REPOSITORY/releases/tags/$GITHUB_REF_NAME" \
+              --jq .id)
+            gh api --method PATCH \
+              "repos/$GITHUB_REPOSITORY/releases/$release_id" \
+              -F prerelease=false -f make_latest=true >/dev/null
+          fi
           mkdir dist
           gh release download "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
             --pattern "$CHANNEL.json" --pattern "$CHANNEL.json.sig" --dir dist

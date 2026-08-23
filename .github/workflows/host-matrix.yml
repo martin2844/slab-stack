@@ -132,7 +132,9 @@ jobs:
               --data-binary @- http://127.0.0.1:3009/api/agents |
             jq -er .data.id)
 
-          mapfile -t release_selection </root/slab-matrix/release-selection
+          mapfile -t release_selection < <(
+            sudo sed -n '1,2p' /root/slab-matrix/release-selection
+          )
           sudo sh /tmp/slab-install.sh "${release_selection[@]}" -- \
             --non-interactive --config /root/slab-matrix/install.conf
           curl --fail --silent --show-error \
