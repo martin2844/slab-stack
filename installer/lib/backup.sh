@@ -165,8 +165,10 @@ slabctl_database_schema() {
   image=$(jq -er --arg key "$image_key" \
     '.images[$key].ref + "@" + .images[$key].digest' \
     "$SLABCTL_INSTALL_DIRECTORY/release-manifest.json") || return 1
+  # SQLite may need to update WAL/SHM coordination files even when the database
+  # connection itself is read-only. Services are stopped before this probe.
   docker run --rm --user 0 --entrypoint node \
-    --mount "type=volume,src=$docker_volume,dst=/data,readonly" \
+    --mount "type=volume,src=$docker_volume,dst=/data" \
     "$image" -e '
       const Database = require("better-sqlite3");
       const database = new Database(process.argv[1], {

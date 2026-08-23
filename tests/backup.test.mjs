@@ -167,6 +167,30 @@ test("does not guess a legacy volume when the exact Compose name is absent", () 
   assert.match(result.stderr, /expected one Docker volume/);
 });
 
+test("schema inspection keeps SQL read-only while allowing SQLite WAL coordination", (t) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "slab-schema-probe-"));
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const dockerArgs = path.join(directory, "docker-args");
+  const result = backupShell(
+    `
+      SLABCTL_INSTALL_DIRECTORY=/fixture
+      jq() { printf '%s\n' fixture-image; }
+      docker() {
+        printf '%s\n' "$*" > "$DOCKER_ARGS"
+        printf '%s\n' '{"kind":"sqlite","migrationCount":0,"latestMigration":null,"userVersion":0}'
+      }
+      slabctl_database_schema docs_data slab_docs_data
+    `,
+    [],
+    { DOCKER_ARGS: dockerArgs },
+  );
+  assert.equal(result.status, 0, result.stderr);
+  const invocation = fs.readFileSync(dockerArgs, "utf8");
+  assert.match(invocation, /type=volume,src=slab_docs_data,dst=\/data/);
+  assert.doesNotMatch(invocation, /dst=\/data,readonly/);
+  assert.match(invocation, /readonly: true/);
+});
+
 test("verifies a versioned backup manifest and every declared payload", (t) => {
   const { archive } = backupFixture(t);
   const result = backupShell(
