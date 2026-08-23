@@ -17,7 +17,7 @@ const imageEnvironmentRenderer = path.join(
 const candidatePath = path.join(
   root,
   "releases",
-  "v0.1.0-candidate.18.json",
+  "v0.1.0-candidate.19.json",
 );
 const example = JSON.parse(
   fs.readFileSync(path.join(root, "releases", "example-manifest.json"), "utf8"),
@@ -49,6 +49,14 @@ test("accepts the complete development release fixture", () => {
 
 test("accepts the immutable candidate release manifest", () => {
   const result = validate(structuredClone(candidate));
+  assert.equal(result.status, 0, result.stderr);
+});
+
+test("accepts a release-engineering drill manifest", () => {
+  const manifest = structuredClone(candidate);
+  manifest.stackVersion = "0.1.0-drill.1";
+  manifest.channel = "drill";
+  const result = validate(manifest);
   assert.equal(result.status, 0, result.stderr);
 });
 

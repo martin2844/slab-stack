@@ -31,8 +31,9 @@ jobs:
           channel=$(jq -r '.channel' "$manifest")
           case "$channel" in
             candidate) prerelease=true ;;
+            drill) prerelease=true ;;
             stable) prerelease=false ;;
-            *) echo "Only candidate and stable manifests can be released." >&2; exit 1 ;;
+            *) echo "Only candidate, stable, and drill manifests can be released." >&2; exit 1 ;;
           esac
           printf 'version=%s\nmanifest=%s\nchannel=%s\nprerelease=%s\n' \
             "$version" "$manifest" "$channel" "$prerelease" >> "$GITHUB_OUTPUT"

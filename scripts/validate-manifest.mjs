@@ -21,7 +21,7 @@ function invariant(condition, message) {
 invariant(manifest.schemaVersion === 1, "schemaVersion must be 1");
 invariant(semver.test(manifest.stackVersion), "stackVersion must be semver");
 invariant(
-  ["development", "candidate", "stable"].includes(manifest.channel),
+  ["development", "candidate", "stable", "drill"].includes(manifest.channel),
   "channel is invalid",
 );
 invariant(

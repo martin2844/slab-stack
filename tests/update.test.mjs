@@ -260,6 +260,23 @@ test("release client accepts only a channel and bundle under the reviewed signat
   assert.match(tampered.stderr, /channel signature verification failed/);
 });
 
+test("release client requires an explicit disposable-host opt-in for drill channel", () => {
+  const source = path.join(root, "installer/lib/release-client.sh");
+  const script = [
+    '. "$1"',
+    'slabctl_error() { echo "slabctl: $*" >&2; return 1; }',
+    'slabctl_release_validate_requested_channel drill',
+  ].join("; ");
+  const rejected = command("sh", ["-c", script, "drill-gate", source]);
+  assert.notEqual(rejected.status, 0);
+  assert.match(rejected.stderr, /restricted to explicit disposable-host tests/);
+
+  const accepted = command("sh", ["-c", script, "drill-gate", source], {
+    env: { ...process.env, SLAB_RELEASE_ALLOW_DRILL_CHANNEL: "1" },
+  });
+  assert.equal(accepted.status, 0, accepted.stderr);
+});
+
 function updateFixture(
   t,
   {

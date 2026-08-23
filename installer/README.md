@@ -190,6 +190,12 @@ sudo slabctl update check --channel candidate
 sudo slabctl update apply --channel candidate
 ```
 
+Release engineering also has an isolated signed `drill` channel for destructive
+rollback exercises on disposable hosts. It is rejected by default and is not an
+installation or product update channel. An operator must opt in for one command
+with `SLAB_RELEASE_ALLOW_DRILL_CHANNEL=1`; never enable it persistently or on a
+workspace containing data that cannot be discarded.
+
 `update apply` requires typing `UPDATE` unless `--yes` is supplied. It persists
 maintenance mode in Slab Agents, waits for active Runs and approvals to drain,
 creates a verified pre-update backup, applies one-shot migrations, and requires

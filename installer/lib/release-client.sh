@@ -75,6 +75,20 @@ slabctl_release_validate_channel() {
   }
 }
 
+slabctl_release_validate_requested_channel() {
+  requested_channel=$1
+  case "$requested_channel" in
+    stable | candidate) ;;
+    drill)
+      [ "${SLAB_RELEASE_ALLOW_DRILL_CHANNEL:-0}" = 1 ] || {
+        slabctl_error "the drill release channel is restricted to explicit disposable-host tests"
+        return 1
+      }
+      ;;
+    *) slabctl_error "unsupported release channel: $requested_channel"; return 1 ;;
+  esac
+}
+
 slabctl_release_validate_archive() {
   archive=$1
   expected_root=$2
@@ -122,10 +136,7 @@ slabctl_release_cleanup() {
 slabctl_release_prepare_channel() {
   requested_channel=$1
   public_key=$2
-  case "$requested_channel" in
-    stable | candidate) ;;
-    *) slabctl_error "unsupported release channel: $requested_channel"; return 1 ;;
-  esac
+  slabctl_release_validate_requested_channel "$requested_channel" || return 1
   slabctl_release_cleanup
   SLAB_RELEASE_TEMPORARY_DIRECTORY=$(mktemp -d /tmp/slab-release.XXXXXX) || return 1
   chmod 0700 "$SLAB_RELEASE_TEMPORARY_DIRECTORY"

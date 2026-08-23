@@ -32,8 +32,8 @@ node "$ROOT/scripts/validate-manifest.mjs" "$manifest" >/dev/null
 version=$(jq -r '.stackVersion' "$manifest")
 channel=$(jq -r '.channel' "$manifest")
 case "$channel" in
-  candidate | stable) ;;
-  *) echo "Only candidate or stable manifests can be packaged." >&2; exit 1 ;;
+  candidate | stable | drill) ;;
+  *) echo "Only candidate, stable, or drill manifests can be packaged." >&2; exit 1 ;;
 esac
 
 bundle_name=slab-stack-$version

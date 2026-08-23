@@ -6,7 +6,7 @@ slab_validate_release_manifest() {
     . as $manifest |
     .schemaVersion == 1 and
     (.stackVersion | test("^[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?$")) and
-    (.channel | IN("development", "candidate", "stable")) and
+    (.channel | IN("development", "candidate", "stable", "drill")) and
     (.codexVersion | type == "string" and length > 0) and
     (.images | type == "object") and
     (["agents", "work", "docs", "email", "runner"] | all(

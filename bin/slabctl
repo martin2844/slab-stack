@@ -401,7 +401,7 @@ case "${1:-}" in
       esac
       shift
     done
-    case "$update_channel" in stable | candidate) ;; *) slabctl_usage >&2; exit 2 ;; esac
+    slabctl_release_validate_requested_channel "$update_channel" || exit 2
     case "$update_action" in
       check) [ "$update_confirmed" -eq 0 ] || { slabctl_usage >&2; exit 2; }; slabctl_update_check "$update_channel" ;;
       apply) slabctl_update_apply "$update_channel" "$update_confirmed" ;;

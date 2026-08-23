@@ -10,7 +10,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const bootstrap = path.join(root, "bootstrap/install.sh");
 const packager = path.join(root, "scripts/package-release.sh");
-const candidate = path.join(root, "releases/v0.1.0-candidate.18.json");
+const candidate = path.join(root, "releases/v0.1.0-candidate.19.json");
 
 function command(command, args, options = {}) {
   const result = spawnSync(command, args, { encoding: "utf8", ...options });
@@ -264,14 +264,14 @@ test("packages the same manifest reproducibly with only installer runtime files"
   assert.equal(firstResult.status, 0, firstResult.stderr);
   assert.equal(secondResult.status, 0, secondResult.stderr);
 
-  const asset = "slab-stack-0.1.0-candidate.18.tar.gz";
+  const asset = "slab-stack-0.1.0-candidate.19.tar.gz";
   assert.equal(sha256(path.join(first, asset)), sha256(path.join(second, asset)));
   const listing = command("tar", ["-tzf", path.join(first, asset)]).stdout;
   assert.match(listing, /installer\/install\.sh/);
   assert.match(listing, /templates\/compose\.yml/);
   assert.match(listing, /bin\/slabctl/);
   assert.match(listing, /contracts\/release-signing-public\.pem/);
-  assert.match(listing, /releases\/v0\.1\.0-candidate\.18\.json/);
+  assert.match(listing, /releases\/v0\.1\.0-candidate\.19\.json/);
   assert.doesNotMatch(listing, /node_modules|\.git\//);
   const checksumLine = fs.readFileSync(path.join(first, `${asset}.sha256`), "utf8");
   assert.equal(checksumLine, `${sha256(path.join(first, asset))}  ${asset}\n`);
