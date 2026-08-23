@@ -57,4 +57,33 @@ for (const key of ["minimumUpgradeStack", "minimumRollbackStack"]) {
   );
 }
 
+if (manifest.dataCompatibility !== undefined) {
+  const databaseVolumes = ["agents_data", "work_data", "docs_data", "email_data"];
+  invariant(
+    manifest.dataCompatibility.schemaVersion === 1,
+    "dataCompatibility.schemaVersion must be 1",
+  );
+  invariant(
+    Object.keys(manifest.dataCompatibility.volumes ?? {}).sort().join(",") ===
+      databaseVolumes.sort().join(","),
+    "dataCompatibility.volumes must describe every product database",
+  );
+  for (const volume of databaseVolumes) {
+    const migrations = manifest.dataCompatibility.volumes[volume]?.migrations;
+    invariant(
+      Array.isArray(migrations) &&
+        migrations.length > 0 &&
+        migrations.every(
+          (migration) =>
+            typeof migration === "string" && migration.length > 0,
+        ),
+      `dataCompatibility.volumes.${volume}.migrations must be non-empty strings`,
+    );
+    invariant(
+      new Set(migrations).size === migrations.length,
+      `dataCompatibility.volumes.${volume}.migrations must be unique`,
+    );
+  }
+}
+
 console.log(`Valid release manifest: ${manifest.stackVersion}`);

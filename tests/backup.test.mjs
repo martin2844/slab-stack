@@ -27,6 +27,10 @@ function backupFixture(
   t,
   {
     stackVersion = "0.1.0-candidate.10",
+    schemaVersion = 1,
+    appliedMigrations = ["003_agents.cjs"],
+    expectedMigrations = appliedMigrations,
+    externalAuth = [],
     extra = false,
     omitRequiredSecret = false,
   } = {},
@@ -82,8 +86,8 @@ function backupFixture(
       .map((name) => `secrets/${name}`),
   ];
   const manifest = {
-    schemaVersion: 1,
-    format: "slab-backup-v1",
+    schemaVersion,
+    format: `slab-backup-v${schemaVersion}`,
     createdAt: "2026-08-23T12:00:00Z",
     stackVersion,
     source: { projectName: "slab", accessMode: "private" },
@@ -96,18 +100,29 @@ function backupFixture(
     volumes: [
       {
         logicalName: "agents_data",
+        ...(schemaVersion === 2 ? { scope: "product" } : {}),
         dockerVolume: "slab_agents_data",
         archivePath: "volumes/agents_data.tar.gz",
         sha256: checksum(volumeArchive),
         bytes: fs.statSync(volumeArchive).size,
         schema: {
           kind: "sqlite",
-          migrationCount: 3,
-          latestMigration: "003_agents.cjs",
+          migrationCount: appliedMigrations.length,
+          latestMigration: appliedMigrations.at(-1) ?? null,
           userVersion: 0,
+          ...(schemaVersion === 2
+            ? {
+                appliedMigrations,
+                expectedMigrations,
+                matchesRelease:
+                  JSON.stringify(appliedMigrations) ===
+                  JSON.stringify(expectedMigrations),
+              }
+            : {}),
         },
       },
     ],
+    ...(schemaVersion === 2 ? { externalAuth } : {}),
   };
   fs.writeFileSync(path.join(stage, "manifest.json"), JSON.stringify(manifest));
   if (extra)
@@ -120,7 +135,7 @@ function backupFixture(
   ];
   if (extra) members.push("unexpected.txt");
   run("tar", ["-czf", archive, "-C", stage, ...members]);
-  return { archive, directory };
+  return { archive, directory, stage };
 }
 
 function backupShell(script, args = [], env = {}) {
@@ -131,6 +146,17 @@ function backupShell(script, args = [], env = {}) {
       encoding: "utf8",
       env: { ...process.env, ...env },
     },
+  );
+}
+
+function writeTargetRelease(installation, migrations) {
+  fs.writeFileSync(
+    path.join(installation, "release-manifest.json"),
+    JSON.stringify({
+      dataCompatibility: {
+        volumes: { agents_data: { migrations } },
+      },
+    }),
   );
 }
 
@@ -220,6 +246,22 @@ test("rejects a self-consistent backup that omits a required secret", (t) => {
   );
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /manifest is invalid/);
+});
+
+test("rejects v2 schema metadata that does not match its source release", (t) => {
+  const { stage } = backupFixture(t, {
+    schemaVersion: 2,
+    appliedMigrations: ["001.cjs"],
+  });
+  const manifestPath = path.join(stage, "manifest.json");
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+  manifest.volumes[0].schema.matchesRelease = false;
+  fs.writeFileSync(manifestPath, JSON.stringify(manifest));
+  const result = backupShell(
+    'slabctl_backup_validate_manifest "$2"',
+    [manifestPath],
+  );
+  assert.notEqual(result.status, 0);
 });
 
 test("opens and verifies an age-wrapped backup only with a private identity", (t) => {
@@ -328,6 +370,73 @@ test("restore refuses a backup from a different stack version", (t) => {
   assert.match(result.stderr, /not compatible/);
 });
 
+test("v2 restore accepts a different stack version when migrations are a supported prefix", (t) => {
+  const { archive, directory } = backupFixture(t, {
+    schemaVersion: 2,
+    stackVersion: "0.1.0-candidate.15",
+    appliedMigrations: ["001.cjs", "002.cjs"],
+  });
+  const installation = path.join(directory, "installation");
+  fs.mkdirSync(installation);
+  fs.writeFileSync(path.join(installation, "VERSION"), "0.1.0-candidate.16\n");
+  writeTargetRelease(installation, ["001.cjs", "002.cjs", "003.cjs"]);
+  const result = backupShell(
+    [
+      'slabctl_error() { echo "slabctl: $*" >&2; return 1; }',
+      "slabctl_volume_names() { printf '%s\\n' agents_data caddy_data caddy_config; }",
+      "slabctl_resolve_volume() { echo slab_agents_data; }",
+      'SLABCTL_INSTALL_DIRECTORY="$2"',
+      "SLABCTL_PROJECT_NAME=slab",
+      'slabctl_restore_archive "$3" 1 0',
+    ].join("; "),
+    [installation, archive],
+  );
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /Backup stack version: 0\.1\.0-candidate\.15/);
+  assert.match(result.stdout, /Installed stack version: 0\.1\.0-candidate\.16/);
+  assert.match(result.stdout, /Volumes: 1/);
+});
+
+test("v2 restore rejects migrations unknown to the installed release before mutation", (t) => {
+  const { archive, directory } = backupFixture(t, {
+    schemaVersion: 2,
+    stackVersion: "0.1.0-candidate.17",
+    appliedMigrations: ["001.cjs", "future.cjs"],
+  });
+  const installation = path.join(directory, "installation");
+  fs.mkdirSync(installation);
+  fs.writeFileSync(path.join(installation, "VERSION"), "0.1.0-candidate.16\n");
+  writeTargetRelease(installation, ["001.cjs", "002.cjs"]);
+  const result = backupShell(
+    [
+      'slabctl_error() { echo "slabctl: $*" >&2; return 1; }',
+      "slabctl_volume_names() { echo agents_data; }",
+      "slabctl_resolve_volume() { echo slab_agents_data; }",
+      'SLABCTL_INSTALL_DIRECTORY="$2"',
+      "SLABCTL_PROJECT_NAME=slab",
+      'slabctl_restore_archive "$3" 1 0',
+    ].join("; "),
+    [installation, archive],
+  );
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /schema for agents_data is not supported/);
+  assert.equal(
+    fs.existsSync(path.join(installation, "config/restore-state.json")),
+    false,
+  );
+});
+
+test("backup schema gate rejects database drift from the signed release", () => {
+  const matching = backupShell(
+    `slabctl_schema_matches_release '{"kind":"sqlite","matchesRelease":true}'`,
+  );
+  assert.equal(matching.status, 0, matching.stderr);
+  const drifted = backupShell(
+    `slabctl_schema_matches_release '{"kind":"sqlite","matchesRelease":false}'`,
+  );
+  assert.notEqual(drifted.status, 0);
+});
+
 test("restore refuses mutation when running-service inspection fails", (t) => {
   const { archive, directory } = backupFixture(t);
   const installation = path.join(directory, "installation");
@@ -434,6 +543,49 @@ test("successful restore clears maintenance restored from a pre-update backup", 
     ),
   );
   assert.equal(state.status, "RESTORED");
+});
+
+test("v2 restore persists external providers that require host reauthentication", (t) => {
+  const externalAuth = [
+    {
+      provider: "proton_bridge",
+      configuredAccounts: 1,
+      portability: "reauthentication_required",
+    },
+  ];
+  const { archive, directory } = backupFixture(t, {
+    schemaVersion: 2,
+    appliedMigrations: ["001.cjs"],
+    externalAuth,
+  });
+  const installation = path.join(directory, "installation");
+  fs.mkdirSync(path.join(installation, "config"), { recursive: true });
+  fs.mkdirSync(path.join(installation, "secrets"), { recursive: true });
+  fs.writeFileSync(path.join(installation, "VERSION"), "0.1.0-candidate.16\n");
+  writeTargetRelease(installation, ["001.cjs"]);
+  const result = backupShell(
+    [
+      'slabctl_error() { echo "slabctl: $*" >&2; return 1; }',
+      "slabctl_volume_names() { echo agents_data; }",
+      "slabctl_resolve_volume() { echo slab_agents_data; }",
+      "slabctl_backup_runtime_image() { echo fixture-image; }",
+      'slabctl_compose() { [ "$1" = ps ] && return 0; }',
+      'docker() { [ "$1" = run ]; }',
+      "slabctl_stack_start() { :; }",
+      "slabctl_wait_for_healthy_stack() { :; }",
+      "slabctl_update_exit_maintenance() { :; }",
+      'SLABCTL_INSTALL_DIRECTORY="$2"',
+      "SLABCTL_PROJECT_NAME=slab",
+      'slabctl_restore_archive "$3" 0 1',
+    ].join("; "),
+    [installation, archive],
+  );
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /authenticate again on this host/);
+  const state = JSON.parse(
+    fs.readFileSync(path.join(installation, "config/restore-state.json"), "utf8"),
+  );
+  assert.deepEqual(state.reauthenticationRequired, externalAuth);
 });
 
 test("backup output is private from the first archive write", (t) => {

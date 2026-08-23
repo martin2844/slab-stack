@@ -147,18 +147,27 @@ sudo slabctl backup verify \
   /mnt/slab-backups/slab-backup-<version>-<time>.tar.gz.age
 ```
 
-Encryption wraps the same verified `slab-backup-v1` logical archive. Slab
+Encryption wraps the same verified `slab-backup-v2` logical archive. Slab
 decrypts and re-verifies the complete inner manifest before reporting success.
 
-Restore is intentionally stricter. The target must already have the exact same
-stack version installed, its declared volume set must match the archive, and
-the stack must be stopped. Inspect the operation first:
+Restore is intentionally strict. Legacy v1 archives require the exact same
+stack version. V2 archives are accepted when every applied database migration
+is a supported prefix of the target release contract. Only product data is
+restored, so a private backup can move to a domain install (and vice versa)
+without coupling recovery to Caddy certificates or state. The stack must be
+stopped. Inspect the operation first:
 
 ```sh
 sudo slabctl restore --dry-run /mnt/slab-backups/workspace-2026-08-23.tar.gz
 sudo slabctl stack stop
 sudo slabctl restore /mnt/slab-backups/workspace-2026-08-23.tar.gz
 ```
+
+The terminal restore state lists external providers that cannot carry their
+host session to a new machine. Gmail and encrypted connector configuration stay
+inside the restored product data. A configured Proton Bridge account is marked
+`reauthentication_required`; after a host move, run `sudo slabctl proton setup`
+before relying on that account.
 
 Pass `--identity /root/slab-backup.agekey` for an encrypted archive.
 

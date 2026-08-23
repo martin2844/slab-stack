@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://slab.ar/schemas/backup-manifest-v1.json",
+  "$id": "https://slab.ar/schemas/backup-manifest-v2.json",
   "title": "Slab backup manifest",
   "type": "object",
   "additionalProperties": false,
@@ -12,11 +12,12 @@
     "source",
     "images",
     "files",
-    "volumes"
+    "volumes",
+    "externalAuth"
   ],
   "properties": {
-    "schemaVersion": { "const": 1 },
-    "format": { "const": "slab-backup-v1" },
+    "schemaVersion": { "const": 2 },
+    "format": { "const": "slab-backup-v2" },
     "createdAt": { "type": "string", "format": "date-time" },
     "stackVersion": {
       "type": "string",
@@ -44,6 +45,7 @@
         "additionalProperties": false,
         "required": [
           "logicalName",
+          "scope",
           "dockerVolume",
           "archivePath",
           "sha256",
@@ -55,6 +57,7 @@
             "type": "string",
             "pattern": "^[A-Za-z0-9_.-]+$"
           },
+          "scope": { "const": "product" },
           "dockerVolume": { "type": "string", "minLength": 1 },
           "archivePath": {
             "type": "string",
@@ -75,9 +78,43 @@
               "kind": { "enum": ["sqlite", "opaque"] },
               "migrationCount": { "type": ["integer", "null"], "minimum": 0 },
               "latestMigration": { "type": ["string", "null"] },
-              "userVersion": { "type": ["integer", "null"], "minimum": 0 }
-            }
+              "userVersion": { "type": ["integer", "null"], "minimum": 0 },
+              "appliedMigrations": {
+                "type": "array",
+                "items": { "type": "string" }
+              },
+              "expectedMigrations": {
+                "type": "array",
+                "items": { "type": "string" }
+              },
+              "matchesRelease": { "const": true }
+            },
+            "allOf": [
+              {
+                "if": { "properties": { "kind": { "const": "sqlite" } } },
+                "then": {
+                  "required": [
+                    "appliedMigrations",
+                    "expectedMigrations",
+                    "matchesRelease"
+                  ]
+                }
+              }
+            ]
           }
+        }
+      }
+    },
+    "externalAuth": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["provider", "configuredAccounts", "portability"],
+        "properties": {
+          "provider": { "const": "proton_bridge" },
+          "configuredAccounts": { "type": "integer", "minimum": 1 },
+          "portability": { "const": "reauthentication_required" }
         }
       }
     }

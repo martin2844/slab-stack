@@ -1,6 +1,7 @@
 #!/bin/sh
 
-SLABCTL_BACKUP_FORMAT=slab-backup-v1
+SLABCTL_BACKUP_FORMAT=slab-backup-v2
+SLABCTL_BACKUP_LEGACY_FORMAT=slab-backup-v1
 
 slabctl_backup_required_files() {
   cat <<'EOF'
@@ -117,6 +118,29 @@ slabctl_volume_names() {
   slabctl_compose config --volumes | LC_ALL=C sort -u
 }
 
+slabctl_volume_scope() {
+  case "$1" in
+    caddy_data | caddy_config) printf '%s\n' infrastructure ;;
+    *) printf '%s\n' product ;;
+  esac
+}
+
+slabctl_product_volume_names() {
+  for logical_name in $(slabctl_volume_names); do
+    [ "$(slabctl_volume_scope "$logical_name")" = product ] || continue
+    printf '%s\n' "$logical_name"
+  done | LC_ALL=C sort -u
+}
+
+slabctl_expected_migrations() {
+  logical_name=$1
+  jq -cer --arg logicalName "$logical_name" '
+    .dataCompatibility.volumes[$logicalName].migrations |
+    select(type == "array") |
+    map(tostring)
+  ' "$SLABCTL_INSTALL_DIRECTORY/release-manifest.json"
+}
+
 slabctl_resolve_volume() {
   logical_name=$1
   case "$logical_name" in
@@ -162,6 +186,10 @@ slabctl_database_schema() {
       ;;
   esac
 
+  expected_migrations=$(slabctl_expected_migrations "$logical_name") || {
+    slabctl_error "release manifest has no data compatibility contract for $logical_name"
+    return 1
+  }
   image=$(jq -er --arg key "$image_key" \
     '.images[$key].ref + "@" + .images[$key].digest' \
     "$SLABCTL_INSTALL_DIRECTORY/release-manifest.json") || return 1
@@ -175,12 +203,20 @@ slabctl_database_schema() {
         readonly: true,
         fileMustExist: true,
       });
+      const logicalName = process.argv[2];
+      const expectedMigrations = JSON.parse(process.argv[3]);
+      const migrationQueries = {
+        agents_data: "SELECT name AS migration FROM knex_migrations ORDER BY id",
+        work_data: "SELECT id AS migration FROM migrations ORDER BY id",
+        docs_data: "SELECT version AS migration FROM schema_migrations ORDER BY version",
+        email_data: "SELECT version AS migration FROM schema_migrations ORDER BY version",
+      };
       let migrations = [];
       try {
         migrations = database
-          .prepare("SELECT name FROM knex_migrations ORDER BY id")
+          .prepare(migrationQueries[logicalName])
           .all()
-          .map((row) => row.name);
+          .map((row) => String(row.migration));
       } catch (error) {
         if (!String(error.message).includes("no such table")) throw error;
       }
@@ -188,10 +224,49 @@ slabctl_database_schema() {
         kind: "sqlite",
         migrationCount: migrations.length,
         latestMigration: migrations.at(-1) ?? null,
+        appliedMigrations: migrations,
+        expectedMigrations,
+        matchesRelease: JSON.stringify(migrations) === JSON.stringify(expectedMigrations),
         userVersion: database.pragma("user_version", { simple: true }),
       }));
       database.close();
-    ' "$database_path"
+    ' "$database_path" "$logical_name" "$expected_migrations"
+}
+
+slabctl_external_auth_metadata() {
+  docker_volume=$1
+  image=$(jq -er '.images.email.ref + "@" + .images.email.digest' \
+    "$SLABCTL_INSTALL_DIRECTORY/release-manifest.json") || return 1
+  docker run --rm --user 0 --entrypoint node \
+    --mount "type=volume,src=$docker_volume,dst=/data" \
+    "$image" -e '
+      const Database = require("better-sqlite3");
+      const database = new Database("/data/slab-email.db", {
+        readonly: true,
+        fileMustExist: true,
+      });
+      let configuredAccounts = 0;
+      try {
+        configuredAccounts = Number(database.prepare(
+          "SELECT COUNT(*) AS count FROM email_accounts WHERE provider = ?"
+        ).get("proton_bridge").count);
+      } catch (error) {
+        if (!String(error.message).includes("no such table")) throw error;
+      }
+      const metadata = configuredAccounts > 0 ? [{
+        provider: "proton_bridge",
+        configuredAccounts,
+        portability: "reauthentication_required",
+      }] : [];
+      process.stdout.write(JSON.stringify(metadata));
+      database.close();
+    '
+}
+
+slabctl_schema_matches_release() {
+  schema=$1
+  [ "$(printf '%s\n' "$schema" | jq -r '.kind')" != sqlite ] ||
+    printf '%s\n' "$schema" | jq -e '.matchesRelease == true' >/dev/null
 }
 
 slabctl_copy_backup_file() {
@@ -321,8 +396,10 @@ slabctl_backup_create() (
   runtime_image=$(slabctl_backup_runtime_image) || exit 1
   files_jsonl=$stage_directory/files.jsonl
   volumes_jsonl=$stage_directory/volumes.jsonl
+  external_auth_json=$stage_directory/external-auth.json
   : > "$files_jsonl"
   : > "$volumes_jsonl"
+  printf '%s\n' '[]' > "$external_auth_json"
 
   for archive_path in $(
     cd "$stage_directory" &&
@@ -332,13 +409,23 @@ slabctl_backup_create() (
       "$files_jsonl" || exit 1
   done
 
-  for logical_name in $(slabctl_volume_names); do
+  for logical_name in $(slabctl_product_volume_names); do
     docker_volume=$(slabctl_resolve_volume "$logical_name") || exit 1
     volume_archive=volumes/$logical_name.tar.gz
     schema=$(slabctl_database_schema "$logical_name" "$docker_volume") || {
       slabctl_error "could not inspect schema metadata for $logical_name"
       exit 1
     }
+    if ! slabctl_schema_matches_release "$schema"; then
+      slabctl_error "database schema for $logical_name does not match the installed release manifest"
+      exit 1
+    fi
+    if [ "$logical_name" = email_data ]; then
+      slabctl_external_auth_metadata "$docker_volume" > "$external_auth_json" || {
+        slabctl_error "could not inspect external authentication portability"
+        exit 1
+      }
+    fi
     slabctl_archive_volume "$runtime_image" "$docker_volume" \
       "$stage_directory/volumes" "$logical_name.tar.gz" || exit 1
     checksum=$(sha256sum "$stage_directory/$volume_archive" | awk '{print $1}') || exit 1
@@ -346,8 +433,8 @@ slabctl_backup_create() (
     jq -nc --arg logicalName "$logical_name" \
       --arg dockerVolume "$docker_volume" --arg archivePath "$volume_archive" \
       --arg sha256 "$checksum" --argjson bytes "$bytes" \
-      --argjson schema "$schema" \
-      '{logicalName:$logicalName,dockerVolume:$dockerVolume,archivePath:$archivePath,sha256:$sha256,bytes:$bytes,schema:$schema}' \
+      --arg scope product --argjson schema "$schema" \
+      '{logicalName:$logicalName,scope:$scope,dockerVolume:$dockerVolume,archivePath:$archivePath,sha256:$sha256,bytes:$bytes,schema:$schema}' \
       >> "$volumes_jsonl"
   done
 
@@ -363,7 +450,8 @@ slabctl_backup_create() (
     --slurpfile release "$SLABCTL_INSTALL_DIRECTORY/release-manifest.json" \
     --slurpfile files "$files_jsonl" \
     --slurpfile volumes "$volumes_jsonl" \
-    '{schemaVersion:1,format:$format,createdAt:$createdAt,stackVersion:$stackVersion,source:{projectName:$projectName,accessMode:$accessMode},images:$release[0].images,files:$files,volumes:$volumes}' \
+    --slurpfile externalAuth "$external_auth_json" \
+    '{schemaVersion:2,format:$format,createdAt:$createdAt,stackVersion:$stackVersion,source:{projectName:$projectName,accessMode:$accessMode},images:$release[0].images,files:$files,volumes:$volumes,externalAuth:$externalAuth[0]}' \
     > "$stage_directory/manifest.json" || exit 1
   chmod 0600 "$stage_directory/manifest.json"
 
@@ -405,9 +493,11 @@ slabctl_backup_validate_manifest() {
   manifest_path=$1
   required_files=$(slabctl_backup_required_files)
   jq -e --arg format "$SLABCTL_BACKUP_FORMAT" \
+    --arg legacyFormat "$SLABCTL_BACKUP_LEGACY_FORMAT" \
     --arg requiredFiles "$required_files" '
-    .schemaVersion == 1 and
-    .format == $format and
+    . as $manifest |
+    ((.schemaVersion == 1 and .format == $legacyFormat) or
+      (.schemaVersion == 2 and .format == $format)) and
     (.createdAt | type == "string" and length > 0) and
     (.stackVersion | type == "string" and test("^[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?$")) and
     (.source.projectName | type == "string" and length > 0) and
@@ -416,6 +506,7 @@ slabctl_backup_validate_manifest() {
     (.files | type == "array") and
     (([.files[].path] | sort) == ($requiredFiles | split("\n") | sort)) and
     (.volumes | type == "array" and length > 0) and
+    ([.volumes[].logicalName] | length == (unique | length)) and
     ([.files[].path, .volumes[].archivePath] | length == (unique | length)) and
     ([.files[] |
       (.path | test("^(metadata|secrets)/[A-Za-z0-9._-]+$")) and
@@ -427,7 +518,24 @@ slabctl_backup_validate_manifest() {
       (.archivePath | test("^volumes/[A-Za-z0-9_.-]+\\.tar\\.gz$")) and
       (.sha256 | test("^[a-f0-9]{64}$")) and
       (.bytes | type == "number" and . >= 0) and
-      (.schema | type == "object")] | all)
+      (.schema | type == "object") and
+      (if $manifest.schemaVersion == 2 then
+        .scope == "product" and
+        (if .schema.kind == "sqlite" then
+          (.logicalName | IN("agents_data", "work_data", "docs_data", "email_data")) and
+          (.schema.appliedMigrations | type == "array" and all(type == "string")) and
+          (.schema.expectedMigrations | type == "array" and all(type == "string")) and
+          .schema.appliedMigrations == .schema.expectedMigrations and
+          .schema.matchesRelease == true
+        else .schema.kind == "opaque" end)
+      else true end)] | all) and
+    (if .schemaVersion == 2 then
+      (.externalAuth | type == "array") and
+      ([.externalAuth[] |
+        .provider == "proton_bridge" and
+        (.configuredAccounts | type == "number" and . >= 1) and
+        .portability == "reauthentication_required"] | all)
+    else true end)
   ' "$manifest_path" >/dev/null 2>&1
 }
 
@@ -537,15 +645,60 @@ slabctl_backup_verify() (
   ' "$temporary_directory/manifest.json"
 )
 
+slabctl_restore_archive_product_volumes() {
+  manifest_path=$1
+  jq -r '
+    .volumes[] |
+    select((.scope // (if (.logicalName | startswith("caddy_")) then "infrastructure" else "product" end)) == "product") |
+    .logicalName
+  ' "$manifest_path" | LC_ALL=C sort -u
+}
+
+slabctl_restore_schema_compatible() {
+  manifest_path=$1
+  backup_version=$2
+  installed_version=$3
+  schema_version=$(jq -r '.schemaVersion' "$manifest_path")
+  if [ "$schema_version" -eq 1 ]; then
+    [ "$backup_version" = "$installed_version" ] || {
+      slabctl_error "legacy backup stack version $backup_version is not compatible with installed version $installed_version"
+      return 1
+    }
+    return 0
+  fi
+
+  tab=$(printf '\t')
+  while IFS="$tab" read -r logical_name applied_migrations; do
+    [ -n "$logical_name" ] || continue
+    target_migrations=$(slabctl_expected_migrations "$logical_name") || {
+      slabctl_error "installed release has no data compatibility contract for $logical_name"
+      return 1
+    }
+    if ! jq -en --argjson applied "$applied_migrations" \
+      --argjson target "$target_migrations" '
+        ($applied | length) <= ($target | length) and
+        $target[0:($applied | length)] == $applied
+      ' >/dev/null
+    then
+      slabctl_error "backup database schema for $logical_name is not supported by installed version $installed_version"
+      return 1
+    fi
+  done <<EOF
+$(jq -r '.volumes[] | select(.schema.kind == "sqlite") | [.logicalName, (.schema.appliedMigrations | @json)] | @tsv' "$manifest_path")
+EOF
+}
+
 slabctl_restore_write_state() {
   status=$1
   archive_sha256=$2
   message=$3
+  reauthentication_required=${4:-[]}
   state_path=$SLABCTL_INSTALL_DIRECTORY/config/restore-state.json
   temporary_state=$SLABCTL_INSTALL_DIRECTORY/config/.restore-state.$$
   jq -n --arg status "$status" --arg archiveSha256 "$archive_sha256" \
     --arg message "$message" --arg updatedAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-    '{schemaVersion:1,status:$status,archiveSha256:$archiveSha256,updatedAt:$updatedAt,message:$message}' \
+    --argjson reauthenticationRequired "$reauthentication_required" \
+    '{schemaVersion:1,status:$status,archiveSha256:$archiveSha256,updatedAt:$updatedAt,message:$message,reauthenticationRequired:$reauthenticationRequired}' \
     > "$temporary_state"
   chmod 0600 "$temporary_state"
   mv "$temporary_state" "$state_path"
@@ -563,17 +716,16 @@ slabctl_restore_archive() (
 
   backup_version=$(jq -r '.stackVersion' "$temporary_directory/manifest.json")
   installed_version=$(sed -n '1p' "$SLABCTL_INSTALL_DIRECTORY/VERSION")
-  [ "$backup_version" = "$installed_version" ] || {
-    slabctl_error "backup stack version $backup_version is not compatible with installed version $installed_version"
-    exit 1
-  }
+  slabctl_restore_schema_compatible "$temporary_directory/manifest.json" \
+    "$backup_version" "$installed_version" || exit 1
 
   archive_volumes=$temporary_directory/archive-volumes.txt
   current_volumes=$temporary_directory/current-volumes.txt
-  jq -r '.volumes[].logicalName' "$temporary_directory/manifest.json" | LC_ALL=C sort > "$archive_volumes"
-  slabctl_volume_names > "$current_volumes"
+  slabctl_restore_archive_product_volumes "$temporary_directory/manifest.json" \
+    > "$archive_volumes"
+  slabctl_product_volume_names > "$current_volumes"
   cmp -s "$archive_volumes" "$current_volumes" || {
-    slabctl_error "backup volume set does not match this installation"
+    slabctl_error "backup product volume set does not match this installation"
     exit 1
   }
   while IFS= read -r logical_name; do
@@ -582,7 +734,8 @@ slabctl_restore_archive() (
 
   if [ "$dry_run" -eq 1 ]; then
     echo "Restore dry run passed."
-    echo "Stack version: $backup_version"
+    echo "Backup stack version: $backup_version"
+    echo "Installed stack version: $installed_version"
     echo "Volumes: $(wc -l < "$current_volumes" | tr -d ' ')"
     echo "No data was changed."
     exit 0
@@ -610,8 +763,11 @@ slabctl_restore_archive() (
   fi
 
   archive_sha256=$(sha256sum "$archive" | awk '{print $1}') || exit 1
+  reauthentication_required=$(jq -c '[.externalAuth[]? | select(.portability == "reauthentication_required")]' \
+    "$temporary_directory/manifest.json") || exit 1
   slabctl_restore_write_state RESTORING "$archive_sha256" \
-    "Replacing workspace volumes from a verified backup." || exit 1
+    "Replacing workspace volumes from a verified backup." \
+    "$reauthentication_required" || exit 1
   runtime_image=$(slabctl_backup_runtime_image) || exit 1
 
   restore_failed=0
@@ -632,7 +788,7 @@ slabctl_restore_archive() (
       break
     fi
   done <<EOF
-$(jq -r '.volumes[] | [.logicalName,.archivePath] | @tsv' "$temporary_directory/manifest.json")
+$(jq -r '.volumes[] | select((.scope // (if (.logicalName | startswith("caddy_")) then "infrastructure" else "product" end)) == "product") | [.logicalName,.archivePath] | @tsv' "$temporary_directory/manifest.json")
 EOF
 
   if [ "$restore_failed" -eq 0 ]; then
@@ -652,7 +808,8 @@ EOF
 
   if [ "$restore_failed" -ne 0 ]; then
     slabctl_restore_write_state RECOVERY_REQUIRED "$archive_sha256" \
-      "Restore stopped after workspace mutation; rerun the same verified restore before starting Slab." || true
+      "Restore stopped after workspace mutation; rerun the same verified restore before starting Slab." \
+      "$reauthentication_required" || true
     slabctl_error "restore did not finish; the stack remains stopped and requires recovery"
     exit 1
   fi
@@ -667,7 +824,7 @@ EOF
       restore_message="Data was restored, but services did not reach health after migrations and running services could not be ruled out. Stop the stack before recovery."
     fi
     slabctl_restore_write_state RECOVERY_REQUIRED "$archive_sha256" \
-      "$restore_message" || true
+      "$restore_message" "$reauthentication_required" || true
     slabctl_error "data restored but services are not healthy; recovery is required"
     exit 1
   fi
@@ -675,12 +832,14 @@ EOF
     ! slabctl_update_exit_maintenance
   then
     slabctl_restore_write_state RECOVERY_REQUIRED "$archive_sha256" \
-      "Data was restored and services are healthy, but agent dispatch remains in maintenance mode. Run: sudo slabctl update recover-maintenance" || true
+      "Data was restored and services are healthy, but agent dispatch remains in maintenance mode. Run: sudo slabctl update recover-maintenance" \
+      "$reauthentication_required" || true
     slabctl_error "data restored, but agent dispatch maintenance could not be cleared"
     exit 1
   fi
   if ! slabctl_restore_write_state RESTORED "$archive_sha256" \
-    "Backup restored and services reached health after migrations."
+    "Backup restored and services reached health after migrations." \
+    "$reauthentication_required"
   then
     if command -v slabctl_update_enter_maintenance >/dev/null 2>&1; then
       slabctl_update_enter_maintenance >/dev/null 2>&1 || true
@@ -689,4 +848,9 @@ EOF
     exit 1
   fi
   echo "Restore completed and verified: $archive"
+  if [ "$(printf '%s\n' "$reauthentication_required" | jq 'length')" -gt 0 ]; then
+    echo "External account action required:"
+    printf '%s\n' "$reauthentication_required" | jq -r \
+      '.[] | "- " + .provider + ": authenticate again on this host (" + (.configuredAccounts | tostring) + " configured account(s))"'
+  fi
 )

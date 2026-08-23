@@ -17,7 +17,7 @@ const imageEnvironmentRenderer = path.join(
 const candidatePath = path.join(
   root,
   "releases",
-  "v0.1.0-candidate.15.json",
+  "v0.1.0-candidate.16.json",
 );
 const example = JSON.parse(
   fs.readFileSync(path.join(root, "releases", "example-manifest.json"), "utf8"),
@@ -50,6 +50,14 @@ test("accepts the complete development release fixture", () => {
 test("accepts the immutable candidate release manifest", () => {
   const result = validate(structuredClone(candidate));
   assert.equal(result.status, 0, result.stderr);
+});
+
+test("rejects an incomplete database compatibility contract", () => {
+  const manifest = structuredClone(candidate);
+  delete manifest.dataCompatibility.volumes.email_data;
+  const result = validate(manifest);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /must describe every product database/);
 });
 
 test("rejects a release missing one service image", () => {

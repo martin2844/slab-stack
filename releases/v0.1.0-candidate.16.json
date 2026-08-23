@@ -1,0 +1,66 @@
+{
+  "schemaVersion": 1,
+  "stackVersion": "0.1.0-candidate.16",
+  "channel": "candidate",
+  "releasedAt": "2026-08-23T21:30:00Z",
+  "minimumSlabctlVersion": "0.1.0-candidate.10",
+  "images": {
+    "agents": {
+      "ref": "ghcr.io/martin2844/slab-agents:candidate-c9a15456453cb59491e22da8a2ca605e10f9d0e9",
+      "digest": "sha256:30d0ca5a34b9ffe0bfbefe43e96e5495dad0930d0c9f7bbd4c0171209395166d",
+      "platforms": ["linux/amd64", "linux/arm64"]
+    },
+    "work": {
+      "ref": "ghcr.io/martin2844/slab:candidate-bbafc81d62b2f429b3af1e8972a338f5276e0f7a",
+      "digest": "sha256:3190a68db66331027605dec6f07dfd12565b0ed9132d518b25367609edf1cfc5",
+      "platforms": ["linux/amd64", "linux/arm64"]
+    },
+    "docs": {
+      "ref": "ghcr.io/martin2844/slab-docs:candidate-1e2e6ed9ca2257a393e63e3219648471a63d480c",
+      "digest": "sha256:0521012b5465e92192699eb13a13826f07739995531e1a963c8e09db25a7d59a",
+      "platforms": ["linux/amd64", "linux/arm64"]
+    },
+    "email": {
+      "ref": "ghcr.io/martin2844/slab-email:candidate-58816f1d708c97953ed5c4f87b81170c6a9ba1e0",
+      "digest": "sha256:95e165cf4be802ce8bf5266d4573d7328f721aee77bca300c20d37cd0cb82d6f",
+      "platforms": ["linux/amd64", "linux/arm64"]
+    },
+    "runner": {
+      "ref": "ghcr.io/martin2844/slab-runner:candidate-091823fdacf387529a7f559f4409a2723bc86e9c",
+      "digest": "sha256:83a7e82614d5aad35ca50dc1f1cddaf4f2906c9c19d04e075d302dcdf17a423b",
+      "platforms": ["linux/amd64", "linux/arm64"]
+    }
+  },
+  "codexVersion": "0.148.0",
+  "migrationCompatibility": {
+    "minimumUpgradeStack": "0.1.0-candidate.1",
+    "minimumRollbackStack": "0.1.0-candidate.4"
+  },
+  "dataCompatibility": {
+    "schemaVersion": 1,
+    "volumes": {
+      "agents_data": {
+        "migrations": [
+          "202608160001_initial_control_plane.cjs",
+          "202608170002_agent_full_access.cjs",
+          "202608170003_integrations.cjs",
+          "202608170004_agent_quick_actions.cjs",
+          "202608170005_work_coordination.cjs",
+          "202608170006_run_execution_semantics.cjs",
+          "202608180007_email_integration.cjs",
+          "202608190010_custom_integrations.cjs",
+          "202608190011_fix_custom_integrations.cjs",
+          "202608200012_single_user_auth.cjs",
+          "202608230013_calendar_integrations.cjs",
+          "202608230014_integration_snapshot_markers.cjs",
+          "202608230015_oauth_state_version.cjs",
+          "202608240016_durable_dispatch.cjs",
+          "202608240017_runner_resume_cursor.cjs"
+        ]
+      },
+      "work_data": { "migrations": ["1", "2"] },
+      "docs_data": { "migrations": ["1", "2"] },
+      "email_data": { "migrations": ["1", "2", "3"] }
+    }
+  }
+}
