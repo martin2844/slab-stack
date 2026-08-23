@@ -2,6 +2,26 @@
 
 SLABCTL_BACKUP_FORMAT=slab-backup-v1
 
+slabctl_backup_required_files() {
+  cat <<'EOF'
+metadata/Caddyfile
+metadata/VERSION
+metadata/compose.domain.yml
+metadata/compose.private.yml
+metadata/compose.yml
+metadata/config-access-mode
+metadata/config-install-state.json
+metadata/config-install.env
+metadata/release-manifest.json
+secrets/docs-api-key
+secrets/email-admin-key
+secrets/email-master-key
+secrets/runner-token
+secrets/session-secret
+secrets/work-api-key
+EOF
+}
+
 slabctl_backup_runtime_image() {
   if [ -n "${SLABCTL_BACKUP_RUNTIME_IMAGE:-}" ]; then
     printf '%s\n' "$SLABCTL_BACKUP_RUNTIME_IMAGE"
@@ -211,6 +231,7 @@ slabctl_write_backup_state() {
 }
 
 slabctl_backup_create() (
+  umask 077
   requested_destination=${1:-}
   encryption_identity=${2:-}
   encrypted=0
@@ -221,16 +242,15 @@ slabctl_backup_create() (
   fi
   destination=$(slabctl_backup_destination "$requested_destination" "$encrypted") || exit 1
   destination_directory=$(dirname -- "$destination")
-  partial_archive=$destination_directory/.$(basename -- "$destination").partial.$$
   stage_directory=$(mktemp -d "$destination_directory/.slab-backup.XXXXXX") || exit 1
   chmod 0700 "$stage_directory"
+  partial_archive=$stage_directory/final-archive
   was_running=0
 
   # shellcheck disable=SC2317
   cleanup_backup() {
     cleanup_status=$?
     rm -rf "$stage_directory"
-    rm -f "$partial_archive"
     if [ "$was_running" -eq 1 ]; then
       if ! slabctl_stack_start >/dev/null 2>&1; then
         echo "slabctl: backup finished with the stack stopped; run 'sudo slabctl stack start'" >&2
@@ -267,13 +287,20 @@ slabctl_backup_create() (
       "$stage_directory" || exit 1
   done
 
-  running_containers=$(slabctl_compose ps --status running -q 2>/dev/null || true)
+  running_containers=$(slabctl_compose ps --status running -q 2>/dev/null) || {
+    slabctl_error "could not inspect running services before backup"
+    exit 1
+  }
   if [ -n "$running_containers" ]; then
     was_running=1
     echo "Stopping Slab briefly for a consistent backup..."
     slabctl_compose stop >/dev/null || exit 1
   fi
-  [ -z "$(slabctl_compose ps --status running -q 2>/dev/null || true)" ] || {
+  running_containers=$(slabctl_compose ps --status running -q 2>/dev/null) || {
+    slabctl_error "could not verify that services stopped before backup"
+    exit 1
+  }
+  [ -z "$running_containers" ] || {
     slabctl_error "could not stop every service for a consistent backup"
     exit 1
   }
@@ -363,7 +390,9 @@ slabctl_backup_create() (
 
 slabctl_backup_validate_manifest() {
   manifest_path=$1
-  jq -e --arg format "$SLABCTL_BACKUP_FORMAT" '
+  required_files=$(slabctl_backup_required_files)
+  jq -e --arg format "$SLABCTL_BACKUP_FORMAT" \
+    --arg requiredFiles "$required_files" '
     .schemaVersion == 1 and
     .format == $format and
     (.createdAt | type == "string" and length > 0) and
@@ -372,6 +401,7 @@ slabctl_backup_validate_manifest() {
     (.source.accessMode | IN("private", "domain")) and
     (.images | type == "object") and
     (.files | type == "array") and
+    (([.files[].path] | sort) == ($requiredFiles | split("\n") | sort)) and
     (.volumes | type == "array" and length > 0) and
     ([.files[].path, .volumes[].archivePath] | length == (unique | length)) and
     ([.files[] |
@@ -545,7 +575,11 @@ slabctl_restore_archive() (
     exit 0
   fi
 
-  [ -z "$(slabctl_compose ps --status running -q 2>/dev/null || true)" ] || {
+  running_containers=$(slabctl_compose ps --status running -q 2>/dev/null) || {
+    slabctl_error "could not inspect running services before restore"
+    exit 1
+  }
+  [ -z "$running_containers" ] || {
     slabctl_error "restore requires a stopped stack; run 'sudo slabctl stack stop' first"
     exit 1
   }
@@ -611,12 +645,35 @@ EOF
   fi
 
   if ! slabctl_stack_start || ! slabctl_wait_for_healthy_stack; then
+    if slabctl_stack_stop >/dev/null 2>&1 &&
+      running_containers=$(slabctl_compose ps --status running -q 2>/dev/null) &&
+      [ -z "$running_containers" ]
+    then
+      restore_message="Data was restored, but services did not reach health after migrations. The stack is stopped."
+    else
+      restore_message="Data was restored, but services did not reach health after migrations and running services could not be ruled out. Stop the stack before recovery."
+    fi
     slabctl_restore_write_state RECOVERY_REQUIRED "$archive_sha256" \
-      "Data was restored, but services did not reach health after migrations." || true
-    slabctl_error "data restored but services are not healthy; inspect status before retrying"
+      "$restore_message" || true
+    slabctl_error "data restored but services are not healthy; recovery is required"
     exit 1
   fi
-  slabctl_restore_write_state RESTORED "$archive_sha256" \
-    "Backup restored and services reached health after migrations." || exit 1
+  if command -v slabctl_update_exit_maintenance >/dev/null 2>&1 &&
+    ! slabctl_update_exit_maintenance
+  then
+    slabctl_restore_write_state RECOVERY_REQUIRED "$archive_sha256" \
+      "Data was restored and services are healthy, but agent dispatch remains in maintenance mode. Run: sudo slabctl update recover-maintenance" || true
+    slabctl_error "data restored, but agent dispatch maintenance could not be cleared"
+    exit 1
+  fi
+  if ! slabctl_restore_write_state RESTORED "$archive_sha256" \
+    "Backup restored and services reached health after migrations."
+  then
+    if command -v slabctl_update_enter_maintenance >/dev/null 2>&1; then
+      slabctl_update_enter_maintenance >/dev/null 2>&1 || true
+    fi
+    slabctl_error "restore succeeded, but its terminal state could not be persisted; agent dispatch was paused again"
+    exit 1
+  fi
   echo "Restore completed and verified: $archive"
 )

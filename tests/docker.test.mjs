@@ -18,8 +18,13 @@ test("bounded service diagnostics redact credential-shaped content", () => {
     slab_compose() {
       printf '%s\n' \
         'Authorization: Bearer should-not-escape' \
+        'Authorization: Basic c2hvcnQtc2VjcmV0' \
+        'Cookie: session=short-cookie-secret' \
+        'https://user:short-password@example.test/path' \
         'RUNNER_TOKEN=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef' \
         '{"token":"opaque-secret-value","apiKey":"opaque-key-value"}' \
+        '{"x-api-key":"short-secret-123","x-auth-token":"other-secret-456"}' \
+        '{"Authorization":"Bearer json-auth-secret","Cookie":"session=json-cookie-secret"}' \
         'ordinary diagnostic'
     }
     slab_print_bounded_service_logs slab-agents
@@ -29,7 +34,10 @@ test("bounded service diagnostics redact credential-shaped content", () => {
   assert.match(result.stderr, /\[REDACTED\]/);
   assert.doesNotMatch(result.stderr, /should-not-escape/);
   assert.doesNotMatch(result.stderr, /0123456789abcdef/);
-  assert.doesNotMatch(result.stderr, /opaque-secret-value|opaque-key-value/);
+  assert.doesNotMatch(
+    result.stderr,
+    /c2hvcnQtc2VjcmV0|short-cookie-secret|short-password|opaque-secret-value|opaque-key-value|short-secret-123|other-secret-456|json-auth-secret|json-cookie-secret/,
+  );
 });
 
 test("service diagnostics are capped even when the source is large", () => {

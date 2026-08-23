@@ -10,6 +10,7 @@ else
   SLABCTL_EXPECTED_OWNER_UID=0
 fi
 pointer_file=$slabctl_root/etc/slab/install-directory
+binary_file=$slabctl_root/usr/local/bin/slabctl
 library_file=$slabctl_root/usr/local/lib/slab-stack/codex.sh
 lifecycle_file=$slabctl_root/usr/local/lib/slab-stack/lifecycle.sh
 domain_file=$slabctl_root/usr/local/lib/slab-stack/domain.sh
@@ -19,11 +20,153 @@ release_client_file=$slabctl_root/usr/local/lib/slab-stack/release-client.sh
 release_public_key_file=$slabctl_root/usr/local/lib/slab-stack/release-signing-public.pem
 update_file=$slabctl_root/usr/local/lib/slab-stack/update.sh
 doctor_file=$slabctl_root/usr/local/lib/slab-stack/doctor.sh
+manager_version_file=$slabctl_root/usr/local/lib/slab-stack/VERSION
+management_transaction_file=$slabctl_root/etc/slab/management-transaction
 
 [ "$(id -u)" -eq 0 ] || [ -n "$slabctl_root" ] || {
   echo "slabctl must run as root (use sudo)." >&2
   exit 1
 }
+
+slabctl_recover_management_transaction() {
+  [ -f "$management_transaction_file" ] &&
+    [ ! -L "$management_transaction_file" ] || {
+      echo "slabctl: management recovery journal is unsafe" >&2
+      exit 1
+    }
+  [ "$(stat -c '%u' "$management_transaction_file")" -eq "$SLABCTL_EXPECTED_OWNER_UID" ] &&
+    [ "$(stat -c '%a' "$management_transaction_file")" = 600 ] || {
+      echo "slabctl: management recovery journal has unsafe permissions" >&2
+      exit 1
+    }
+  rollback_directory=$(sed -n '1p' "$management_transaction_file")
+  case "$rollback_directory" in
+    "$slabctl_root/etc/slab/".management-rollback.*) ;;
+    *)
+      echo "slabctl: management recovery directory is outside the trusted registry" >&2
+      exit 1
+      ;;
+  esac
+  [ -d "$rollback_directory" ] && [ ! -L "$rollback_directory" ] || {
+    echo "slabctl: management recovery directory is unavailable" >&2
+    exit 1
+  }
+  recovery_launcher=$rollback_directory/recovery-launcher
+  if [ ! -f "$recovery_launcher" ]; then
+    cp -p "$binary_file" "$recovery_launcher" || {
+      echo "slabctl: could not preserve the recovery-aware launcher" >&2
+      exit 1
+    }
+    chmod 0700 "$recovery_launcher"
+  fi
+  recovery_update=$rollback_directory/recovery-update.sh
+  if [ ! -f "$recovery_update" ]; then
+    cp -p "$update_file" "$recovery_update" || {
+      echo "slabctl: could not preserve the recovery-aware update logic" >&2
+      exit 1
+    }
+    chmod 0600 "$recovery_update"
+  fi
+  recovery_manager_version=$rollback_directory/recovery-manager-version
+  if [ ! -f "$recovery_manager_version" ]; then
+    cp -p "$manager_version_file" "$recovery_manager_version" || {
+      echo "slabctl: could not preserve the recovery-aware manager identity" >&2
+      exit 1
+    }
+    chmod 0600 "$recovery_manager_version"
+  fi
+  restore_management_target() {
+    target=$1
+    name=$2
+    if [ -f "$rollback_directory/$name.present" ]; then
+      temporary=$(dirname -- "$target")/.$(basename -- "$target").journal-restore.$$
+      cp -p "$rollback_directory/$name" "$temporary" && mv "$temporary" "$target" || {
+        rm -f "$temporary"
+        return 1
+      }
+    else
+      rm -f "$target" || return 1
+    fi
+  }
+  install_recovery_wrapper() {
+    previous_launcher=$rollback_directory/binary
+    wrapper=$(dirname -- "$binary_file")/.slabctl.journal-wrapper.$$
+    cat > "$wrapper" <<'EOF'
+#!/bin/sh
+# slab-stack-managed: slabctl
+if [ -n "${SLABCTL_TEST_ROOT:-}" ] && [ "$(id -u)" -ne 0 ]; then
+  slabctl_wrapper_root=$SLABCTL_TEST_ROOT
+else
+  slabctl_wrapper_root=
+fi
+slabctl_wrapper_transaction=$slabctl_wrapper_root/etc/slab/management-transaction
+if [ -f "$slabctl_wrapper_transaction" ]; then
+  slabctl_wrapper_recovery=$(sed -n '1p' "$slabctl_wrapper_transaction")/recovery-launcher
+  [ -x "$slabctl_wrapper_recovery" ] || {
+    echo "slabctl: management recovery launcher is unavailable" >&2
+    exit 1
+  }
+  exec "$slabctl_wrapper_recovery" "$@"
+fi
+EOF
+    if [ -f "$rollback_directory/binary.present" ]; then
+      cat "$previous_launcher" >> "$wrapper"
+    else
+      cat >> "$wrapper" <<'EOF'
+echo "slabctl: management installation is incomplete; rerun the installer" >&2
+exit 1
+EOF
+    fi
+    chmod 0755 "$wrapper"
+    mv "$wrapper" "$binary_file"
+  }
+  # Restore the launcher last. If recovery itself is interrupted, the next
+  # invocation must still run the recovery-aware generation.
+  restore_management_target "$library_file" codex &&
+    restore_management_target "$lifecycle_file" lifecycle &&
+    restore_management_target "$domain_file" domain &&
+    restore_management_target "$proton_file" proton &&
+    restore_management_target "$backup_file" backup &&
+    restore_management_target "$release_client_file" release-client &&
+    restore_management_target "$release_public_key_file" release-public-key &&
+    restore_management_target "$update_file" update &&
+    restore_management_target "$doctor_file" doctor &&
+    restore_management_target "$manager_version_file" manager-version &&
+    restore_management_target "$pointer_file" pointer &&
+    install_recovery_wrapper || {
+      echo "slabctl: management transaction recovery failed; files remain at $rollback_directory" >&2
+      exit 1
+    }
+  transition_state=
+  if [ -f "$pointer_file" ] && [ ! -L "$pointer_file" ]; then
+    transition_install_directory=$(sed -n '1p' "$pointer_file")
+    transition_state_file=$transition_install_directory/config/update-state.json
+    if [ -f "$transition_state_file" ] && [ ! -L "$transition_state_file" ]; then
+      transition_state=$(jq -r '.status // empty' "$transition_state_file" 2>/dev/null || true)
+    fi
+  fi
+  case "$transition_state" in
+    APPLYING | RECOVERY_REQUIRED | ROLLBACK_FAILED | UPDATED | ROLLED_BACK)
+      SLABCTL_TRANSITION_UPDATE_FILE=$recovery_update
+      SLABCTL_TRANSITION_MANAGER_VERSION_FILE=$recovery_manager_version
+      SLABCTL_TRANSITION_ROLLBACK_DIRECTORY=$rollback_directory
+      ;;
+    *)
+      rm -f "$management_transaction_file"
+      rm -rf "$rollback_directory"
+      ;;
+  esac
+}
+
+slabctl_complete_management_transition() {
+  [ -n "${SLABCTL_TRANSITION_ROLLBACK_DIRECTORY:-}" ] || return 0
+  rm -f "$management_transaction_file"
+  rm -rf "$SLABCTL_TRANSITION_ROLLBACK_DIRECTORY"
+  SLABCTL_TRANSITION_ROLLBACK_DIRECTORY=
+}
+
+[ ! -e "$management_transaction_file" ] || slabctl_recover_management_transaction
+
 if [ ! -f "$pointer_file" ] || [ -L "$pointer_file" ]; then
   echo "slabctl: installation registry is missing or unsafe" >&2
   exit 1
@@ -48,17 +191,21 @@ if [ ! -f "$backup_file" ] || [ -L "$backup_file" ]; then
   echo "slabctl: backup management library is missing or unsafe" >&2
   exit 1
 fi
+effective_update_file=${SLABCTL_TRANSITION_UPDATE_FILE:-$update_file}
+effective_manager_version_file=${SLABCTL_TRANSITION_MANAGER_VERSION_FILE:-$manager_version_file}
 if [ ! -f "$release_client_file" ] || [ -L "$release_client_file" ] ||
   [ ! -f "$release_public_key_file" ] || [ -L "$release_public_key_file" ] ||
-  [ ! -f "$update_file" ] || [ -L "$update_file" ] ||
-  [ ! -f "$doctor_file" ] || [ -L "$doctor_file" ]
+  [ ! -f "$effective_update_file" ] || [ -L "$effective_update_file" ] ||
+  [ ! -f "$doctor_file" ] || [ -L "$doctor_file" ] ||
+  [ ! -f "$effective_manager_version_file" ] || [ -L "$effective_manager_version_file" ]
 then
   echo "slabctl: release verification metadata is missing or unsafe" >&2
   exit 1
 fi
 for management_file in "$pointer_file" "$library_file" "$lifecycle_file" \
   "$domain_file" "$proton_file" "$backup_file" "$release_client_file" \
-  "$release_public_key_file" "$update_file" "$doctor_file"
+  "$release_public_key_file" "$effective_update_file" "$doctor_file" \
+  "$effective_manager_version_file"
 do
   [ "$(stat -c '%u' "$management_file")" -eq "$SLABCTL_EXPECTED_OWNER_UID" ] || {
     echo "slabctl: management metadata has an unexpected owner" >&2
@@ -70,6 +217,12 @@ do
     exit 1
   }
 done
+SLABCTL_MANAGER_VERSION=$(sed -n '1p' "$effective_manager_version_file")
+printf '%s\n' "$SLABCTL_MANAGER_VERSION" |
+  grep -Eq '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z][0-9A-Za-z.-]*)?$' || {
+    echo "slabctl: management version is invalid" >&2
+    exit 1
+  }
 
 SLABCTL_INSTALL_DIRECTORY=$(sed -n '1p' "$pointer_file")
 # shellcheck source=installer/lib/codex.sh
@@ -85,7 +238,7 @@ SLABCTL_INSTALL_DIRECTORY=$(sed -n '1p' "$pointer_file")
 # shellcheck source=installer/lib/release-client.sh
 . "$release_client_file"
 # shellcheck source=installer/lib/update.sh
-. "$update_file"
+. "$effective_update_file"
 # shellcheck source=installer/lib/doctor.sh
 . "$doctor_file"
 slab_acquire_management_lock "$SLABCTL_INSTALL_DIRECTORY"
@@ -110,6 +263,7 @@ Usage:
   sudo slabctl update check [--channel stable|candidate]
   sudo slabctl update apply [--channel stable|candidate] [--yes]
   sudo slabctl update rollback [--yes]
+  sudo slabctl update recover-maintenance
   sudo slabctl doctor [--json]
   sudo slabctl support-bundle [--yes] [DESTINATION]
 
@@ -251,6 +405,11 @@ case "${1:-}" in
       check) [ "$update_confirmed" -eq 0 ] || { slabctl_usage >&2; exit 2; }; slabctl_update_check "$update_channel" ;;
       apply) slabctl_update_apply "$update_channel" "$update_confirmed" ;;
       rollback) slabctl_update_rollback "$update_confirmed" ;;
+      recover-maintenance)
+        [ "$update_confirmed" -eq 0 ] || { slabctl_usage >&2; exit 2; }
+        slabctl_update_recover_maintenance
+        slabctl_complete_management_transition
+        ;;
       *) slabctl_usage >&2; exit 2 ;;
     esac
     ;;

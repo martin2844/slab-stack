@@ -2,10 +2,16 @@
 
 slabctl_doctor_sanitize_stream() {
   LC_ALL=C sed -E \
-    -e "s/(Bearer[[:space:]]+)[^[:space:]\"']+/\\1[REDACTED]/g" \
-    -e 's/("[A-Za-z0-9_]*(password|token|secret|api[_-]?key)[A-Za-z0-9_]*"[[:space:]]*:[[:space:]]*")[^"]*/\1[REDACTED]/Ig' \
-    -e 's/([A-Za-z0-9_]*(password|token|secret|api[_-]?key)[A-Za-z0-9_]*[=:][[:space:]]*)[^,[:space:]]+/\1[REDACTED]/Ig' \
-    -e 's/[a-f0-9]{32,}/[REDACTED]/g'
+    -e 's/^([[:space:]]*((Proxy-)?Authorization|Cookie|Set-Cookie)[[:space:]]*:[[:space:]]*).*/\1[REDACTED]/Ig' \
+    -e 's/("((Proxy-)?Authorization|Cookie|Set-Cookie)"[[:space:]]*:[[:space:]]*")[^"]*/\1[REDACTED]/Ig' \
+    -e 's/((Proxy-)?Authorization[[:space:]]*:[[:space:]]*(Bearer|Basic)[[:space:]]+)[^,;[:space:]]+/\1[REDACTED]/Ig' \
+    -e 's/((Cookie|Set-Cookie)[[:space:]]*:[[:space:]]*).*/\1[REDACTED]/Ig' \
+    -e 's#([A-Za-z][A-Za-z0-9+.-]*://)[^/@[:space:]]+@#\1[REDACTED]@#g' \
+    -e 's/("[A-Za-z0-9_-]*(password|token|secret|api[_-]?key)[A-Za-z0-9_-]*"[[:space:]]*:[[:space:]]*")[^"]*/\1[REDACTED]/Ig' \
+    -e 's/([A-Za-z0-9_-]*(password|token|secret|api[_-]?key)[A-Za-z0-9_-]*[=:][[:space:]]*)"[^"]*"/\1"[REDACTED]"/Ig' \
+    -e "s/([A-Za-z0-9_-]*(password|token|secret|api[_-]?key)[A-Za-z0-9_-]*[=:][[:space:]]*)'[^']*'/\1'[REDACTED]'/Ig" \
+    -e 's/([A-Za-z0-9_-]*(password|token|secret|api[_-]?key)[A-Za-z0-9_-]*[=:][[:space:]]*)[^,[:space:]]+/\1[REDACTED]/Ig' \
+    -e 's/[A-Za-z0-9_+\/-]{32,}={0,2}/[REDACTED]/g'
 }
 
 slabctl_doctor_append() {
@@ -199,6 +205,7 @@ slabctl_doctor() (
 )
 
 slabctl_support_bundle() (
+  umask 077
   destination=${1:-/var/backups/slab}
   confirmed=${2:-0}
   timestamp=$(date -u +%Y%m%dT%H%M%SZ)
@@ -218,13 +225,15 @@ slabctl_support_bundle() (
     slabctl_error "support bundle already exists: $bundle_output"
     exit 1
   }
-  temporary_directory=$(mktemp -d "$output_directory/.slab-support.XXXXXX") || exit 1
+  work_directory=$(mktemp -d "$output_directory/.slab-support.XXXXXX") || exit 1
+  chmod 0700 "$work_directory"
+  temporary_directory=$work_directory/content
+  partial=$work_directory/archive.tar.gz
+  mkdir "$temporary_directory"
   chmod 0700 "$temporary_directory"
-  partial=$output_directory/.$(basename -- "$bundle_output").partial.$$
   cleanup_support() {
     cleanup_status=$?
-    rm -rf "$temporary_directory"
-    rm -f "$partial"
+    rm -rf "$work_directory"
     exit "$cleanup_status"
   }
   trap cleanup_support EXIT
@@ -283,6 +292,6 @@ slabctl_support_bundle() (
   chmod 0600 "$partial"
   mv "$partial" "$bundle_output"
   trap - EXIT HUP INT TERM
-  rm -rf "$temporary_directory"
+  rm -rf "$work_directory"
   echo "Sanitized support bundle created: $bundle_output"
 )

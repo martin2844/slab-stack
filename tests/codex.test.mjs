@@ -64,17 +64,35 @@ function fixture(initialStatus = "READY_NO_RUNTIME", accessMode = "private") {
     path.join(hostRoot, "usr/local/lib/slab-stack/release-signing-public.pem"),
   );
   fs.writeFileSync(
+    path.join(hostRoot, "usr/local/lib/slab-stack/VERSION"),
+    "0.1.0-candidate.10\n",
+  );
+  fs.writeFileSync(
     path.join(hostRoot, "etc/slab/install-directory"),
     `${installDirectory}\n`,
   );
-  fs.writeFileSync(path.join(installDirectory, "config/access-mode"), `${accessMode}\n`);
+  fs.writeFileSync(
+    path.join(installDirectory, "config/access-mode"),
+    `${accessMode}\n`,
+  );
   fs.writeFileSync(
     path.join(installDirectory, "config/install.env"),
-    accessMode === "domain" ? "SLAB_DOMAIN=agents.example.com\n" : "SLAB_DOMAIN=\n",
+    accessMode === "domain"
+      ? "SLAB_DOMAIN=agents.example.com\n"
+      : "SLAB_DOMAIN=\n",
   );
-  fs.writeFileSync(path.join(installDirectory, "compose.yml"), "services: {}\n");
-  fs.writeFileSync(path.join(installDirectory, "compose.private.yml"), "services: {}\n");
-  fs.writeFileSync(path.join(installDirectory, "compose.domain.yml"), "services: {}\n");
+  fs.writeFileSync(
+    path.join(installDirectory, "compose.yml"),
+    "services: {}\n",
+  );
+  fs.writeFileSync(
+    path.join(installDirectory, "compose.private.yml"),
+    "services: {}\n",
+  );
+  fs.writeFileSync(
+    path.join(installDirectory, "compose.domain.yml"),
+    "services: {}\n",
+  );
   fs.writeFileSync(
     path.join(installDirectory, "config/install-state.json"),
     JSON.stringify({
@@ -128,7 +146,14 @@ exit "\${SLAB_TEST_TLS_EXIT:-0}"
 `,
     { mode: 0o755 },
   );
-  return { directory, hostRoot, installDirectory, binDirectory, calls, inputLength };
+  return {
+    directory,
+    hostRoot,
+    installDirectory,
+    binDirectory,
+    calls,
+    inputLength,
+  };
 }
 
 function run(current, args, input, environment = {}) {
@@ -206,7 +231,10 @@ test("domain verification promotes TLS_PENDING after trusted HTTPS is reachable"
   try {
     const result = run(current, ["domain", "verify"]);
     assert.equal(result.status, 0, result.stderr);
-    assert.match(result.stdout, /HTTPS is verified for https:\/\/agents\.example\.com/);
+    assert.match(
+      result.stdout,
+      /HTTPS is verified for https:\/\/agents\.example\.com/,
+    );
     const state = JSON.parse(
       fs.readFileSync(
         path.join(current.installDirectory, "config/install-state.json"),
@@ -232,7 +260,10 @@ test("domain verification preserves TLS_PENDING when HTTPS is unavailable", () =
       SLAB_TEST_TLS_EXIT: "22",
     });
     assert.notEqual(result.status, 0);
-    assert.match(result.stderr, /HTTPS is not ready with a trusted certificate/);
+    assert.match(
+      result.stderr,
+      /HTTPS is not ready with a trusted certificate/,
+    );
     const state = JSON.parse(
       fs.readFileSync(
         path.join(current.installDirectory, "config/install-state.json"),
@@ -274,8 +305,14 @@ test("API-key login consumes stdin without exposing the key in output or Docker 
     const result = run(current, ["codex", "login", "--api-key"], `${secret}\n`);
     assert.equal(result.status, 0, result.stderr);
     assert.doesNotMatch(result.stdout + result.stderr, new RegExp(secret));
-    assert.equal(fs.readFileSync(current.inputLength, "utf8"), String(secret.length));
-    assert.doesNotMatch(fs.readFileSync(current.calls, "utf8"), new RegExp(secret));
+    assert.equal(
+      fs.readFileSync(current.inputLength, "utf8"),
+      String(secret.length),
+    );
+    assert.doesNotMatch(
+      fs.readFileSync(current.calls, "utf8"),
+      new RegExp(secret),
+    );
   } finally {
     fs.rmSync(current.directory, { recursive: true, force: true });
   }

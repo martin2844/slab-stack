@@ -35,9 +35,55 @@ slabctl_update_write_state() {
 slabctl_update_version_at_least() {
   actual=$1
   minimum=$2
-  [ "$actual" = "$minimum" ] && return 0
-  first=$(printf '%s\n%s\n' "$actual" "$minimum" | LC_ALL=C sort -V | head -n 1)
-  [ "$first" = "$minimum" ]
+  LC_ALL=C awk -v actual="$actual" -v minimum="$minimum" '
+    function numeric_compare(left, right, left_value, right_value) {
+      left_value = left; right_value = right
+      sub(/^0+/, "", left_value); sub(/^0+/, "", right_value)
+      if (left_value == "") left_value = "0"
+      if (right_value == "") right_value = "0"
+      if (length(left_value) != length(right_value))
+        return length(left_value) < length(right_value) ? -1 : 1
+      if (left_value == right_value) return 0
+      return left_value < right_value ? -1 : 1
+    }
+    function compare(left, right, left_dash, right_dash, left_core, right_core,
+      left_pre, right_pre, left_parts, right_parts, left_count, right_count,
+      index_value, left_numeric, right_numeric, result) {
+      left_dash = index(left, "-"); right_dash = index(right, "-")
+      left_core = left_dash ? substr(left, 1, left_dash - 1) : left
+      right_core = right_dash ? substr(right, 1, right_dash - 1) : right
+      split(left_core, left_parts, "."); split(right_core, right_parts, ".")
+      for (index_value = 1; index_value <= 3; index_value++) {
+        result = numeric_compare(left_parts[index_value], right_parts[index_value])
+        if (result != 0) return result
+      }
+      left_pre = left_dash ? substr(left, left_dash + 1) : ""
+      right_pre = right_dash ? substr(right, right_dash + 1) : ""
+      if (left_pre == "" || right_pre == "") {
+        if (left_pre == right_pre) return 0
+        return left_pre == "" ? 1 : -1
+      }
+      left_count = split(left_pre, left_parts, ".")
+      right_count = split(right_pre, right_parts, ".")
+      for (index_value = 1; index_value <= left_count && index_value <= right_count; index_value++) {
+        left_numeric = left_parts[index_value] ~ /^[0-9]+$/
+        right_numeric = right_parts[index_value] ~ /^[0-9]+$/
+        if (left_numeric && right_numeric) {
+          result = numeric_compare(left_parts[index_value], right_parts[index_value])
+        } else if (left_numeric != right_numeric) {
+          result = left_numeric ? -1 : 1
+        } else if (left_parts[index_value] == right_parts[index_value]) {
+          result = 0
+        } else {
+          result = left_parts[index_value] < right_parts[index_value] ? -1 : 1
+        }
+        if (result != 0) return result
+      }
+      if (left_count == right_count) return 0
+      return left_count < right_count ? -1 : 1
+    }
+    BEGIN { exit(compare(actual, minimum) >= 0 ? 0 : 1) }
+  '
 }
 
 slabctl_update_is_newer() {
@@ -62,8 +108,11 @@ slabctl_update_agents_database() {
       process.exit(0);
     }
     if (action === "active-count") {
+      const now = new Date().toISOString();
       const row = database.prepare(`SELECT COUNT(*) AS count FROM runs
-        WHERE status IN ("running","waiting_approval")`).get();
+        WHERE status IN ("running","waiting_approval")
+          OR (status="queued" AND lease_owner IS NOT NULL AND lease_expires_at > ?)`)
+        .get(now);
       process.stdout.write(String(row.count));
       process.exit(0);
     }
@@ -80,6 +129,119 @@ slabctl_update_enter_maintenance() {
 
 slabctl_update_exit_maintenance() {
   slabctl_update_agents_database maintenance-off >/dev/null
+}
+
+slabctl_update_assert_recoverable_state() {
+  state_path=$(slabctl_update_state_path)
+  [ -f "$state_path" ] || return 0
+  previous_status=$(jq -r '.status // empty' "$state_path" 2>/dev/null || true)
+  case "$previous_status" in
+    APPLYING | RECOVERY_REQUIRED | ROLLBACK_FAILED)
+      slabctl_error "the previous update requires recovery before another update can run"
+      return 1
+      ;;
+  esac
+}
+
+slabctl_update_recover_maintenance() (
+  state_path=$(slabctl_update_state_path)
+  [ -f "$state_path" ] && [ ! -L "$state_path" ] || {
+    slabctl_error "no update recovery state is available"
+    exit 1
+  }
+  status=$(jq -er '.status' "$state_path") || exit 1
+  from_version=$(jq -er '.fromVersion' "$state_path") || exit 1
+  to_version=$(jq -er '.toVersion' "$state_path") || exit 1
+  channel=$(jq -er '.channel' "$state_path") || exit 1
+  backup_path=$(jq -r '.backupPath // ""' "$state_path") || exit 1
+  recovery_directory=$(jq -r '.recoveryDirectory // ""' "$state_path") || exit 1
+  rollback_compatible=$(jq -r '.rollbackCompatible // false' "$state_path") || exit 1
+  installed_version=$(sed -n '1p' "$SLABCTL_INSTALL_DIRECTORY/VERSION")
+  manifest_version=$(jq -r '.stackVersion // ""' \
+    "$SLABCTL_INSTALL_DIRECTORY/release-manifest.json" 2>/dev/null || true)
+  reconcile_identity=
+
+  case "$status:$installed_version" in
+    APPLYING:"$from_version")
+      if [ "$manifest_version" = "$to_version" ]; then
+        terminal_status=UPDATED
+        terminal_from=$from_version
+        terminal_to=$to_version
+        terminal_message="The target release is healthy after an interrupted update and agent dispatch maintenance was cleared."
+        reconcile_identity=$to_version
+      else
+        terminal_status=ROLLED_BACK
+        terminal_from=$from_version
+        terminal_to=$to_version
+        terminal_message="The previous release is healthy after an interrupted update and agent dispatch maintenance was cleared."
+      fi
+      ;;
+    APPLYING:"$to_version")
+      terminal_status=UPDATED
+      terminal_from=$from_version
+      terminal_to=$to_version
+      terminal_message="The target release is healthy after an interrupted update and agent dispatch maintenance was cleared."
+      ;;
+    RECOVERY_REQUIRED:"$from_version")
+      terminal_status=ROLLED_BACK
+      terminal_from=$from_version
+      terminal_to=$to_version
+      terminal_message="The previous release is healthy and agent dispatch maintenance was cleared."
+      ;;
+    RECOVERY_REQUIRED:"$to_version")
+      terminal_status=UPDATED
+      terminal_from=$from_version
+      terminal_to=$to_version
+      terminal_message="The target release is healthy and agent dispatch maintenance was cleared."
+      ;;
+    ROLLBACK_FAILED:"$from_version")
+      terminal_status=UPDATED
+      terminal_from=$to_version
+      terminal_to=$from_version
+      terminal_message="The installed release remains healthy after the failed rollback and agent dispatch maintenance was cleared."
+      ;;
+    UPDATED:"$to_version")
+      terminal_status=UPDATED
+      terminal_from=$from_version
+      terminal_to=$to_version
+      terminal_message="The target release is healthy and agent dispatch maintenance was cleared."
+      ;;
+    ROLLED_BACK:"$to_version")
+      terminal_status=ROLLED_BACK
+      terminal_from=$from_version
+      terminal_to=$to_version
+      terminal_message="The rolled-back release is healthy and agent dispatch maintenance was cleared."
+      ;;
+    *)
+      slabctl_error "update state and installed release do not describe a maintenance-only recovery"
+      exit 1
+      ;;
+  esac
+
+  slabctl_compose config --quiet >/dev/null || exit 1
+  slabctl_wait_for_healthy_stack >/dev/null || exit 1
+  slabctl_update_functional_smoke >/dev/null || exit 1
+  [ -z "$reconcile_identity" ] ||
+    slabctl_update_installed_identity "$reconcile_identity" || exit 1
+  slabctl_update_exit_maintenance || {
+    slabctl_error "could not clear agent dispatch maintenance mode"
+    exit 1
+  }
+  if ! slabctl_update_write_state "$terminal_status" "$terminal_from" "$terminal_to" \
+    "$channel" "$terminal_message" "$backup_path" "$recovery_directory" \
+    "$rollback_compatible"
+  then
+    slabctl_update_enter_maintenance >/dev/null 2>&1 || true
+    slabctl_error "maintenance was cleared, but recovery state could not be persisted; dispatch was paused again"
+    exit 1
+  fi
+  echo "Agent dispatch maintenance cleared."
+)
+
+slabctl_update_stop_for_recovery() {
+  slabctl_compose stop >/dev/null 2>&1 || return 1
+  running_containers=$(slabctl_compose ps --status running -q 2>/dev/null) || return 1
+  [ -z "$running_containers" ]
 }
 
 slabctl_update_wait_for_idle() {
@@ -140,6 +302,7 @@ slabctl_update_installed_identity() {
   version=$1
   state_path=$SLABCTL_INSTALL_DIRECTORY/config/install-state.json
   temporary_state=$SLABCTL_INSTALL_DIRECTORY/config/.install-state.update.$$
+  temporary_version=$SLABCTL_INSTALL_DIRECTORY/.VERSION.update.$$
   updated_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   jq --arg version "$version" --arg updatedAt "$updated_at" '
     .version = $version |
@@ -149,7 +312,10 @@ slabctl_update_installed_identity() {
       completedAt: $updatedAt
     }
   ' "$state_path" > "$temporary_state" || return 1
+  printf '%s\n' "$version" > "$temporary_version" || return 1
   chmod 0600 "$temporary_state"
+  chmod 0644 "$temporary_version"
+  mv "$temporary_version" "$SLABCTL_INSTALL_DIRECTORY/VERSION" || return 1
   mv "$temporary_state" "$state_path"
 }
 
@@ -178,7 +344,7 @@ slabctl_update_render_release() {
   . "$bundle_root/installer/lib/render.sh"
   slab_render_installation "$bundle_root" "$SLABCTL_INSTALL_DIRECTORY" \
     "$manifest" "$access_mode" "$public_url" "$domain" "$acme_email" \
-    "$private_bind_ip" "$private_port"
+    "$private_bind_ip" "$private_port" 0
 }
 
 slabctl_update_install_management() {
@@ -220,6 +386,8 @@ slabctl_update_apply() (
   target=
   rollback_compatible=false
 
+  slabctl_update_assert_recoverable_state || exit 1
+
   cleanup_update() {
     cleanup_status=$?
     trap - EXIT HUP INT TERM
@@ -234,20 +402,41 @@ slabctl_update_apply() (
           slabctl_wait_for_healthy_stack >/dev/null 2>&1 &&
           slabctl_update_functional_smoke >/dev/null 2>&1
         then
-          slabctl_update_exit_maintenance >/dev/null 2>&1 || true
-          slabctl_update_write_state ROLLED_BACK "$current" "$target" "$channel" \
+          if slabctl_update_write_state ROLLED_BACK "$target" "$current" "$channel" \
             "Update failed; the previous release was restored and is healthy." \
-            "$backup_path" "$recovery_directory" "$rollback_compatible" || true
-          echo "Previous release restored successfully." >&2
+            "$backup_path" "$recovery_directory" "$rollback_compatible"
+          then
+            if slabctl_update_exit_maintenance >/dev/null 2>&1; then
+              maintenance_entered=0
+              echo "Previous release restored successfully." >&2
+            else
+              slabctl_update_write_state RECOVERY_REQUIRED "$current" "$target" "$channel" \
+                "The previous release is healthy, but agent dispatch remains in maintenance mode. Restore dispatch with: slabctl update recover-maintenance" \
+                "$backup_path" "$recovery_directory" "$rollback_compatible" || true
+              echo "slabctl: the previous release is healthy, but agent dispatch remains in maintenance mode" >&2
+            fi
+          else
+            slabctl_error "the previous release is healthy, but its recovery ledger could not be persisted; maintenance remains enabled"
+          fi
         else
+          if slabctl_update_stop_for_recovery; then
+            recovery_message="Automatic rollback failed. The stack is stopped; restore the verified pre-update backup."
+          else
+            recovery_message="Automatic rollback failed and running services could not be ruled out. Stop the stack, then restore the verified pre-update backup."
+          fi
           slabctl_update_write_state RECOVERY_REQUIRED "$current" "$target" "$channel" \
-            "Automatic rollback failed. Keep the stack stopped and restore the pre-update backup." \
+            "$recovery_message" \
             "$backup_path" "$recovery_directory" "$rollback_compatible" || true
           slabctl_error "automatic rollback failed; recovery from the verified backup is required"
         fi
       elif [ "$mutation_started" -eq 1 ]; then
+        if slabctl_update_stop_for_recovery; then
+          recovery_message="The update crossed a non-rollback-compatible migration boundary. The stack is stopped; restore the verified pre-update backup."
+        else
+          recovery_message="The update crossed a non-rollback-compatible migration boundary and running services could not be ruled out. Stop the stack, then restore the verified pre-update backup."
+        fi
         slabctl_update_write_state RECOVERY_REQUIRED "$current" "$target" "$channel" \
-          "The update crossed a non-rollback-compatible migration boundary. Keep the stack stopped and restore the verified pre-update backup." \
+          "$recovery_message" \
           "$backup_path" "$recovery_directory" "$rollback_compatible" || true
         slabctl_error "automatic image rollback is unsafe; recovery from the verified backup is required"
       else
@@ -277,8 +466,9 @@ slabctl_update_apply() (
   }
   minimum_manager=$(jq -er '.minimumSlabctlVersion' \
     "$SLAB_RELEASE_MANIFEST") || exit 1
-  slabctl_update_version_at_least "$current" "$minimum_manager" || {
-    slabctl_error "release $target requires slabctl $minimum_manager or newer; installed manager is $current"
+  manager_version=${SLABCTL_MANAGER_VERSION:-$current}
+  slabctl_update_version_at_least "$manager_version" "$minimum_manager" || {
+    slabctl_error "release $target requires slabctl $minimum_manager or newer; installed manager is $manager_version"
     exit 1
   }
   minimum_upgrade=$(jq -er '.migrationCompatibility.minimumUpgradeStack' \
@@ -334,13 +524,13 @@ slabctl_update_apply() (
   slabctl_compose up -d --remove-orphans || exit 1
   slabctl_wait_for_healthy_stack || exit 1
   slabctl_update_functional_smoke || exit 1
-  slabctl_update_installed_identity "$target" || exit 1
-  slabctl_update_exit_maintenance || exit 1
-  maintenance_entered=0
   slabctl_update_install_management "$SLAB_RELEASE_BUNDLE_ROOT" || exit 1
+  slabctl_update_installed_identity "$target" || exit 1
   slabctl_update_write_state UPDATED "$current" "$target" "$channel" \
     "Release applied; services and application readiness passed." \
     "$backup_path" "$recovery_directory" "$rollback_compatible"
+  slabctl_update_exit_maintenance || exit 1
+  maintenance_entered=0
   update_succeeded=1
   echo "Slab updated successfully: $current -> $target"
   echo "Verified backup: $backup_path"
@@ -390,8 +580,13 @@ slabctl_update_rollback() (
     trap - EXIT HUP INT TERM
     if [ "$cleanup_status" -ne 0 ] && [ "$rollback_succeeded" -eq 0 ]; then
       if [ "$rollback_mutated" -eq 1 ]; then
+        if slabctl_update_stop_for_recovery; then
+          rollback_message="Rollback stopped after release files changed. The stack is stopped; restore a verified backup."
+        else
+          rollback_message="Rollback stopped after release files changed and running services could not be ruled out. Stop the stack, then restore a verified backup."
+        fi
         slabctl_update_write_state RECOVERY_REQUIRED "$from_version" "$to_version" "$channel" \
-          "Rollback stopped after release files changed. Keep the stack stopped and restore a verified backup." \
+          "$rollback_message" \
           "${rollback_backup:-$previous_backup}" "$recovery_directory" true || true
       else
         [ "$rollback_maintenance" -eq 0 ] ||
@@ -420,11 +615,11 @@ slabctl_update_rollback() (
   slabctl_compose up -d --remove-orphans || exit 1
   slabctl_wait_for_healthy_stack || exit 1
   slabctl_update_functional_smoke || exit 1
-  slabctl_update_exit_maintenance || exit 1
-  rollback_maintenance=0
   slabctl_update_write_state ROLLED_BACK "$from_version" "$to_version" "$channel" \
     "Operator rollback completed and the previous release is healthy." \
     "$previous_backup" "$recovery_directory" true
+  slabctl_update_exit_maintenance || exit 1
+  rollback_maintenance=0
   rollback_succeeded=1
   echo "Slab rolled back successfully: $from_version -> $to_version"
   echo "Pre-rollback backup: $rollback_backup"

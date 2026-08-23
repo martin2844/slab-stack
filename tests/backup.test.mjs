@@ -17,23 +17,70 @@ function run(command, args, options = {}) {
 }
 
 function checksum(file) {
-  return crypto.createHash("sha256").update(fs.readFileSync(file)).digest("hex");
+  return crypto
+    .createHash("sha256")
+    .update(fs.readFileSync(file))
+    .digest("hex");
 }
 
-function backupFixture(t, { stackVersion = "0.1.0-candidate.10", extra = false } = {}) {
+function backupFixture(
+  t,
+  {
+    stackVersion = "0.1.0-candidate.10",
+    extra = false,
+    omitRequiredSecret = false,
+  } = {},
+) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "slab-backup-test-"));
   t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
   const stage = path.join(directory, "stage");
   const volumeSource = path.join(directory, "volume-source");
   fs.mkdirSync(path.join(stage, "metadata"), { recursive: true });
+  fs.mkdirSync(path.join(stage, "secrets"), { recursive: true });
   fs.mkdirSync(path.join(stage, "volumes"), { recursive: true });
   fs.mkdirSync(volumeSource);
-  fs.writeFileSync(path.join(stage, "metadata/VERSION"), `${stackVersion}\n`);
-  fs.writeFileSync(path.join(volumeSource, "slab-workspace.db"), "fixture-data\n");
+  const metadataNames = [
+    "Caddyfile",
+    "VERSION",
+    "compose.domain.yml",
+    "compose.private.yml",
+    "compose.yml",
+    "config-access-mode",
+    "config-install-state.json",
+    "config-install.env",
+    "release-manifest.json",
+  ];
+  for (const name of metadataNames) {
+    fs.writeFileSync(
+      path.join(stage, "metadata", name),
+      name === "VERSION" ? `${stackVersion}\n` : `${name}-fixture\n`,
+    );
+  }
+  const secretNames = [
+    "docs-api-key",
+    "email-admin-key",
+    "email-master-key",
+    "runner-token",
+    "session-secret",
+    "work-api-key",
+  ];
+  for (const name of secretNames) {
+    if (omitRequiredSecret && name === "session-secret") continue;
+    fs.writeFileSync(path.join(stage, "secrets", name), `${name}-fixture\n`);
+  }
+  fs.writeFileSync(
+    path.join(volumeSource, "slab-workspace.db"),
+    "fixture-data\n",
+  );
   const volumeArchive = path.join(stage, "volumes/agents_data.tar.gz");
   run("tar", ["-czf", volumeArchive, "-C", volumeSource, "."]);
 
-  const metadataPath = path.join(stage, "metadata/VERSION");
+  const payloadFiles = [
+    ...metadataNames.map((name) => `metadata/${name}`),
+    ...secretNames
+      .filter((name) => !(omitRequiredSecret && name === "session-secret"))
+      .map((name) => `secrets/${name}`),
+  ];
   const manifest = {
     schemaVersion: 1,
     format: "slab-backup-v1",
@@ -41,13 +88,11 @@ function backupFixture(t, { stackVersion = "0.1.0-candidate.10", extra = false }
     stackVersion,
     source: { projectName: "slab", accessMode: "private" },
     images: {},
-    files: [
-      {
-        path: "metadata/VERSION",
-        sha256: checksum(metadataPath),
-        bytes: fs.statSync(metadataPath).size,
-      },
-    ],
+    files: payloadFiles.map((payloadPath) => ({
+      path: payloadPath,
+      sha256: checksum(path.join(stage, payloadPath)),
+      bytes: fs.statSync(path.join(stage, payloadPath)).size,
+    })),
     volumes: [
       {
         logicalName: "agents_data",
@@ -65,11 +110,12 @@ function backupFixture(t, { stackVersion = "0.1.0-candidate.10", extra = false }
     ],
   };
   fs.writeFileSync(path.join(stage, "manifest.json"), JSON.stringify(manifest));
-  if (extra) fs.writeFileSync(path.join(stage, "unexpected.txt"), "not declared");
+  if (extra)
+    fs.writeFileSync(path.join(stage, "unexpected.txt"), "not declared");
   const archive = path.join(directory, "backup.tar.gz");
   const members = [
     "manifest.json",
-    "metadata/VERSION",
+    ...payloadFiles,
     "volumes/agents_data.tar.gz",
   ];
   if (extra) members.push("unexpected.txt");
@@ -78,10 +124,14 @@ function backupFixture(t, { stackVersion = "0.1.0-candidate.10", extra = false }
 }
 
 function backupShell(script, args = [], env = {}) {
-  return spawnSync("sh", ["-c", `. "$1"; ${script}`, "backup-test", backupLibrary, ...args], {
-    encoding: "utf8",
-    env: { ...process.env, ...env },
-  });
+  return spawnSync(
+    "sh",
+    ["-c", `. "$1"; ${script}`, "backup-test", backupLibrary, ...args],
+    {
+      encoding: "utf8",
+      env: { ...process.env, ...env },
+    },
+  );
 }
 
 test("verifies a versioned backup manifest and every declared payload", (t) => {
@@ -103,6 +153,16 @@ test("rejects undeclared archive members even when declared checksums are valid"
   );
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /members do not match/);
+});
+
+test("rejects a self-consistent backup that omits a required secret", (t) => {
+  const { archive } = backupFixture(t, { omitRequiredSecret: true });
+  const result = backupShell(
+    'slabctl_error() { echo "slabctl: $*" >&2; return 1; }; slabctl_backup_verify "$2"',
+    [archive],
+  );
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /manifest is invalid/);
 });
 
 test("opens and verifies an age-wrapped backup only with a private identity", (t) => {
@@ -138,9 +198,13 @@ tail -n +2 "$input" > "$output"
 `,
     { mode: 0o755 },
   );
-  fs.writeFileSync(path.join(bin, "age-keygen"), "#!/bin/sh\necho age1fixture\n", {
-    mode: 0o755,
-  });
+  fs.writeFileSync(
+    path.join(bin, "age-keygen"),
+    "#!/bin/sh\necho age1fixture\n",
+    {
+      mode: 0o755,
+    },
+  );
 
   const missingIdentity = backupShell(
     'slabctl_error() { echo "slabctl: $*" >&2; return 1; }; slabctl_backup_verify "$2"',
@@ -170,10 +234,10 @@ test("restore dry-run validates version and volume identity without mutation", (
   const result = backupShell(
     [
       'slabctl_error() { echo "slabctl: $*" >&2; return 1; }',
-      'slabctl_volume_names() { echo agents_data; }',
-      'slabctl_resolve_volume() { echo slab_agents_data; }',
+      "slabctl_volume_names() { echo agents_data; }",
+      "slabctl_resolve_volume() { echo slab_agents_data; }",
       'SLABCTL_INSTALL_DIRECTORY="$2"',
-      'SLABCTL_PROJECT_NAME=slab',
+      "SLABCTL_PROJECT_NAME=slab",
       'slabctl_restore_archive "$3" 1 0',
     ].join("; "),
     [installation, archive],
@@ -181,7 +245,10 @@ test("restore dry-run validates version and volume identity without mutation", (
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /Restore dry run passed/);
   assert.match(result.stdout, /No data was changed/);
-  assert.equal(fs.existsSync(path.join(installation, "config/restore-state.json")), false);
+  assert.equal(
+    fs.existsSync(path.join(installation, "config/restore-state.json")),
+    false,
+  );
 });
 
 test("restore refuses a backup from a different stack version", (t) => {
@@ -192,14 +259,219 @@ test("restore refuses a backup from a different stack version", (t) => {
   const result = backupShell(
     [
       'slabctl_error() { echo "slabctl: $*" >&2; return 1; }',
-      'slabctl_volume_names() { echo agents_data; }',
-      'slabctl_resolve_volume() { echo slab_agents_data; }',
+      "slabctl_volume_names() { echo agents_data; }",
+      "slabctl_resolve_volume() { echo slab_agents_data; }",
       'SLABCTL_INSTALL_DIRECTORY="$2"',
-      'SLABCTL_PROJECT_NAME=slab',
+      "SLABCTL_PROJECT_NAME=slab",
       'slabctl_restore_archive "$3" 1 0',
     ].join("; "),
     [installation, archive],
   );
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /not compatible/);
+});
+
+test("restore refuses mutation when running-service inspection fails", (t) => {
+  const { archive, directory } = backupFixture(t);
+  const installation = path.join(directory, "installation");
+  fs.mkdirSync(installation);
+  fs.writeFileSync(path.join(installation, "VERSION"), "0.1.0-candidate.10\n");
+  const result = backupShell(
+    [
+      'slabctl_error() { echo "slabctl: $*" >&2; return 1; }',
+      "slabctl_volume_names() { echo agents_data; }",
+      "slabctl_resolve_volume() { echo slab_agents_data; }",
+      "slabctl_compose() { return 1; }",
+      'SLABCTL_INSTALL_DIRECTORY="$2"',
+      "SLABCTL_PROJECT_NAME=slab",
+      'slabctl_restore_archive "$3" 0 1',
+    ].join("; "),
+    [installation, archive],
+  );
+  assert.notEqual(result.status, 0);
+  assert.match(
+    result.stderr,
+    /could not inspect running services before restore/,
+  );
+  assert.equal(
+    fs.existsSync(path.join(installation, "config/restore-state.json")),
+    false,
+  );
+});
+
+test("restore stops services when post-restore health fails", (t) => {
+  const { archive, directory } = backupFixture(t);
+  const installation = path.join(directory, "installation");
+  const operations = path.join(directory, "operations.txt");
+  fs.mkdirSync(path.join(installation, "config"), { recursive: true });
+  fs.mkdirSync(path.join(installation, "secrets"), { recursive: true });
+  fs.writeFileSync(path.join(installation, "VERSION"), "0.1.0-candidate.10\n");
+  const result = backupShell(
+    [
+      'slabctl_error() { echo "slabctl: $*" >&2; return 1; }',
+      "slabctl_volume_names() { echo agents_data; }",
+      "slabctl_resolve_volume() { echo slab_agents_data; }",
+      "slabctl_backup_runtime_image() { echo fixture-image; }",
+      'slabctl_compose() { [ "$1" = ps ] && return 0; }',
+      'docker() { [ "$1" = run ]; }',
+      'OPERATIONS="$4"',
+      'slabctl_stack_start() { echo start >> "$OPERATIONS"; }',
+      "slabctl_wait_for_healthy_stack() { return 1; }",
+      'slabctl_stack_stop() { echo stop >> "$OPERATIONS"; }',
+      'SLABCTL_INSTALL_DIRECTORY="$2"',
+      "SLABCTL_PROJECT_NAME=slab",
+      'slabctl_restore_archive "$3" 0 1',
+    ].join("; "),
+    [installation, archive, operations],
+  );
+  assert.notEqual(result.status, 0);
+  assert.equal(fs.existsSync(operations), true, result.stderr);
+  assert.deepEqual(fs.readFileSync(operations, "utf8").trim().split("\n"), [
+    "start",
+    "stop",
+  ]);
+  const state = JSON.parse(
+    fs.readFileSync(
+      path.join(installation, "config/restore-state.json"),
+      "utf8",
+    ),
+  );
+  assert.equal(state.status, "RECOVERY_REQUIRED");
+  assert.match(state.message, /stack is stopped/i);
+});
+
+test("successful restore clears maintenance restored from a pre-update backup", (t) => {
+  const { archive, directory } = backupFixture(t);
+  const installation = path.join(directory, "installation");
+  const operations = path.join(directory, "operations.txt");
+  fs.mkdirSync(path.join(installation, "config"), { recursive: true });
+  fs.mkdirSync(path.join(installation, "secrets"), { recursive: true });
+  fs.writeFileSync(path.join(installation, "VERSION"), "0.1.0-candidate.10\n");
+  const result = backupShell(
+    [
+      'slabctl_error() { echo "slabctl: $*" >&2; return 1; }',
+      "slabctl_volume_names() { echo agents_data; }",
+      "slabctl_resolve_volume() { echo slab_agents_data; }",
+      "slabctl_backup_runtime_image() { echo fixture-image; }",
+      'slabctl_compose() { [ "$1" = ps ] && return 0; }',
+      'docker() { [ "$1" = run ]; }',
+      'OPERATIONS="$4"',
+      'slabctl_stack_start() { echo start >> "$OPERATIONS"; }',
+      "slabctl_wait_for_healthy_stack() { :; }",
+      'slabctl_update_exit_maintenance() { echo maintenance-off >> "$OPERATIONS"; }',
+      'SLABCTL_INSTALL_DIRECTORY="$2"',
+      "SLABCTL_PROJECT_NAME=slab",
+      'slabctl_restore_archive "$3" 0 1',
+    ].join("; "),
+    [installation, archive, operations],
+  );
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(fs.readFileSync(operations, "utf8").trim().split("\n"), [
+    "start",
+    "maintenance-off",
+  ]);
+  const state = JSON.parse(
+    fs.readFileSync(
+      path.join(installation, "config/restore-state.json"),
+      "utf8",
+    ),
+  );
+  assert.equal(state.status, "RESTORED");
+});
+
+test("backup output is private from the first archive write", (t) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "slab-backup-mode-"));
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const installation = path.join(directory, "install");
+  const destination = path.join(directory, "output");
+  fs.mkdirSync(path.join(installation, "config"), { recursive: true });
+  fs.mkdirSync(path.join(installation, "secrets"), { recursive: true });
+  fs.mkdirSync(destination);
+  for (const name of [
+    "release-manifest.json",
+    "VERSION",
+    "compose.yml",
+    "compose.private.yml",
+    "compose.domain.yml",
+    "Caddyfile",
+  ]) {
+    fs.writeFileSync(
+      path.join(installation, name),
+      name === "release-manifest.json" ? '{"images":{}}\n' : "fixture\n",
+    );
+  }
+  fs.writeFileSync(path.join(installation, "config/access-mode"), "private\n");
+  fs.writeFileSync(path.join(installation, "config/install.env"), "A=1\n");
+  fs.writeFileSync(
+    path.join(installation, "config/install-state.json"),
+    "{}\n",
+  );
+  fs.writeFileSync(path.join(installation, "secrets/session"), "secret\n");
+  const modeFile = path.join(directory, "mode.txt");
+  const result = backupShell(
+    [
+      'slabctl_error() { echo "slabctl: $*" >&2; return 1; }',
+      'SLABCTL_INSTALL_DIRECTORY="$2"',
+      "SLABCTL_PROJECT_NAME=slab",
+      'SLABCTL_MODE_FILE="$4"',
+      'slabctl_compose() { [ "$1" != ps ] || return 0; }',
+      "slabctl_volume_names() { :; }",
+      "slabctl_backup_runtime_image() { echo unused; }",
+      "slabctl_backup_verify() { :; }",
+      "slabctl_write_backup_state() { :; }",
+      "slabctl_stack_start() { :; }",
+      'tar() { : > "$2"; stat -c "%a" "$2" > "$SLABCTL_MODE_FILE"; }',
+      "umask 022",
+      'slabctl_backup_create "$3"',
+    ].join("; "),
+    [installation, destination, modeFile],
+  );
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(fs.readFileSync(modeFile, "utf8").trim(), "600");
+});
+
+test("backup refuses a live snapshot when service inspection fails", (t) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "slab-backup-ps-"));
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const installation = path.join(directory, "install");
+  const destination = path.join(directory, "backup.tar.gz");
+  fs.mkdirSync(path.join(installation, "config"), { recursive: true });
+  fs.mkdirSync(path.join(installation, "secrets"), { recursive: true });
+  for (const name of [
+    "release-manifest.json",
+    "VERSION",
+    "compose.yml",
+    "compose.private.yml",
+    "compose.domain.yml",
+    "Caddyfile",
+  ]) {
+    fs.writeFileSync(
+      path.join(installation, name),
+      name === "release-manifest.json" ? '{"images":{}}\n' : "fixture\n",
+    );
+  }
+  fs.writeFileSync(path.join(installation, "config/access-mode"), "private\n");
+  fs.writeFileSync(path.join(installation, "config/install.env"), "A=1\n");
+  fs.writeFileSync(
+    path.join(installation, "config/install-state.json"),
+    "{}\n",
+  );
+  fs.writeFileSync(path.join(installation, "secrets/session"), "secret\n");
+
+  const result = backupShell(
+    [
+      'slabctl_error() { echo "slabctl: $*" >&2; return 1; }',
+      'SLABCTL_INSTALL_DIRECTORY="$2"',
+      "SLABCTL_PROJECT_NAME=slab",
+      "slabctl_compose() { return 1; }",
+      'slabctl_backup_create "$3"',
+    ].join("; "),
+    [installation, destination],
+  );
+  assert.notEqual(result.status, 0);
+  assert.match(
+    result.stderr,
+    /could not inspect running services before backup/,
+  );
+  assert.equal(fs.existsSync(destination), false);
 });

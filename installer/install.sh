@@ -238,7 +238,8 @@ slab_render_installation \
   "$SLAB_DOMAIN" \
   "$SLAB_ACME_EMAIL" \
   "$SLAB_PRIVATE_BIND_IP" \
-  "$SLAB_PRIVATE_PORT"
+  "$SLAB_PRIVATE_PORT" \
+  1
 slab_install_management_cli "$BUNDLE_ROOT" "$SLAB_INSTALL_DIRECTORY"
 slab_install_systemd_unit "$BUNDLE_ROOT"
 slab_configure_compose \

@@ -50,6 +50,10 @@ slab_render_installation() {
   acme_email=$7
   private_bind_ip=$8
   private_port=$9
+  # Older slabctl update clients call this target-release helper with nine
+  # arguments. Defaulting to deferred identity keeps those clients from
+  # claiming the target version before management replacement commits.
+  write_identity=${10:-0}
 
   case "$access_mode" in
     private | domain) ;;
@@ -109,7 +113,9 @@ slab_render_installation() {
   chmod 0644 "$temporary_environment"
   mv "$temporary_environment" "$environment_file"
 
-  jq -r '.stackVersion' "$manifest_path" > "$install_directory/VERSION"
+  if [ "$write_identity" = 1 ]; then
+    jq -r '.stackVersion' "$manifest_path" > "$install_directory/VERSION"
+  fi
   chmod 0644 \
     "$install_directory/compose.yml" \
     "$install_directory/compose.domain.yml" \

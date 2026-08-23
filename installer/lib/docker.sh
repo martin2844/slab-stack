@@ -70,8 +70,13 @@ slab_print_compose_status() {
 slab_sanitize_diagnostic_stream() {
   LC_ALL=C sed -E \
     -e "s/(Bearer[[:space:]]+)[^[:space:]\"']+/\\1[REDACTED]/g" \
-    -e 's/("[A-Za-z0-9_]*(password|token|secret|api[_-]?key)[A-Za-z0-9_]*"[[:space:]]*:[[:space:]]*")[^"]*/\1[REDACTED]/Ig' \
-    -e 's/([A-Za-z0-9_]*(password|token|secret|api[_-]?key)[A-Za-z0-9_]*[=:][[:space:]]*)[^,[:space:]]+/\1[REDACTED]/Ig' \
+    -e 's/^([[:space:]]*((Proxy-)?Authorization|Cookie|Set-Cookie)[[:space:]]*:[[:space:]]*).*/\1[REDACTED]/Ig' \
+    -e 's/((Proxy-)?Authorization[[:space:]]*:[[:space:]]*(Bearer|Basic)[[:space:]]+)[^,;[:space:]]+/\1[REDACTED]/Ig' \
+    -e 's/((Cookie|Set-Cookie)[[:space:]]*:[[:space:]]*).*/\1[REDACTED]/Ig' \
+    -e 's#([A-Za-z][A-Za-z0-9+.-]*://)[^/@[:space:]]+@#\1[REDACTED]@#g' \
+    -e 's/("((Proxy-)?Authorization|Cookie|Set-Cookie)"[[:space:]]*:[[:space:]]*")[^"]*/\1[REDACTED]/Ig' \
+    -e 's/("[A-Za-z0-9_-]*(password|token|secret|api[_-]?key)[A-Za-z0-9_-]*"[[:space:]]*:[[:space:]]*")[^"]*/\1[REDACTED]/Ig' \
+    -e 's/([A-Za-z0-9_-]*(password|token|secret|api[_-]?key)[A-Za-z0-9_-]*[=:][[:space:]]*)[^,[:space:]]+/\1[REDACTED]/Ig' \
     -e 's/[a-f0-9]{32,}/[REDACTED]/g'
 }
 
