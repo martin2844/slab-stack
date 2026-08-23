@@ -6,8 +6,48 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { DatabaseSync } from "node:sqlite";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+
+test("active-run drain query executes with SQLite strict identifier quoting", () => {
+  const updateSource = fs.readFileSync(
+    path.join(root, "installer/lib/update.sh"),
+    "utf8",
+  );
+  const queryStart = updateSource.indexOf("`SELECT COUNT(*) AS count FROM runs");
+  const queryEnd = updateSource.indexOf("`)", queryStart);
+  assert.ok(queryStart >= 0 && queryEnd > queryStart, "active-run query must remain discoverable");
+  const query = updateSource.slice(queryStart + 1, queryEnd);
+
+  const database = new DatabaseSync(":memory:");
+  database.exec(`CREATE TABLE runs (
+    status TEXT NOT NULL,
+    lease_owner TEXT,
+    lease_expires_at TEXT
+  )`);
+  database.prepare(
+    "INSERT INTO runs (status, lease_owner, lease_expires_at) VALUES (?, ?, ?)",
+  ).run("running", null, null);
+  database.prepare(
+    "INSERT INTO runs (status, lease_owner, lease_expires_at) VALUES (?, ?, ?)",
+  ).run("queued", "worker", "2099-01-01T00:00:00.000Z");
+  database.prepare(
+    "INSERT INTO runs (status, lease_owner, lease_expires_at) VALUES (?, ?, ?)",
+  ).run("completed", null, null);
+
+  assert.equal(
+    database
+      .prepare(query)
+      .get(
+        "running",
+        "waiting_approval",
+        "queued",
+        "2026-08-23T00:00:00.000Z",
+      ).count,
+    2,
+  );
+});
 
 function command(commandName, args, options = {}) {
   return spawnSync(commandName, args, { encoding: "utf8", ...options });
@@ -682,6 +722,6 @@ test("maintenance drain includes queued runs that already hold a lease", () => {
   );
   assert.match(
     source,
-    /status="queued" AND lease_owner IS NOT NULL AND lease_expires_at > \?/,
+    /status=\? AND lease_owner IS NOT NULL AND lease_expires_at > \?/,
   );
 });

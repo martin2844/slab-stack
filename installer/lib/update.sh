@@ -111,9 +111,9 @@ slabctl_update_agents_database() {
     if (action === "active-count") {
       const now = new Date().toISOString();
       const row = database.prepare(`SELECT COUNT(*) AS count FROM runs
-        WHERE status IN ("running","waiting_approval")
-          OR (status="queued" AND lease_owner IS NOT NULL AND lease_expires_at > ?)`)
-        .get(now);
+        WHERE status IN (?,?)
+          OR (status=? AND lease_owner IS NOT NULL AND lease_expires_at > ?)`)
+        .get("running", "waiting_approval", "queued", now);
       process.stdout.write(String(row.count));
       process.exit(0);
     }
