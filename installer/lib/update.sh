@@ -110,10 +110,19 @@ slabctl_update_agents_database() {
     }
     if (action === "active-count") {
       const now = new Date().toISOString();
-      const row = database.prepare(`SELECT COUNT(*) AS count FROM runs
-        WHERE status IN (?,?)
-          OR (status=? AND lease_owner IS NOT NULL AND lease_expires_at > ?)`)
-        .get("running", "waiting_approval", "queued", now);
+      const columns = new Set(
+        database.prepare("PRAGMA table_info(runs)").all().map((row) => row.name),
+      );
+      const hasDurableLease = columns.has("lease_owner") &&
+        columns.has("lease_expires_at");
+      const row = hasDurableLease
+        ? database.prepare(`SELECT COUNT(*) AS count FROM runs
+            WHERE status IN (?,?)
+              OR (status=? AND lease_owner IS NOT NULL AND lease_expires_at > ?)`)
+            .get("running", "waiting_approval", "queued", now)
+        : database.prepare(`SELECT COUNT(*) AS count FROM runs
+            WHERE status IN (?,?)`)
+            .get("running", "waiting_approval");
       process.stdout.write(String(row.count));
       process.exit(0);
     }

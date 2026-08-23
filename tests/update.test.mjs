@@ -15,10 +15,20 @@ test("active-run drain query executes with SQLite strict identifier quoting", ()
     path.join(root, "installer/lib/update.sh"),
     "utf8",
   );
-  const queryStart = updateSource.indexOf("`SELECT COUNT(*) AS count FROM runs");
-  const queryEnd = updateSource.indexOf("`)", queryStart);
-  assert.ok(queryStart >= 0 && queryEnd > queryStart, "active-run query must remain discoverable");
-  const query = updateSource.slice(queryStart + 1, queryEnd);
+  const queries = [];
+  let cursor = 0;
+  while (cursor < updateSource.length) {
+    const queryStart = updateSource.indexOf(
+      "`SELECT COUNT(*) AS count FROM runs",
+      cursor,
+    );
+    if (queryStart < 0) break;
+    const queryEnd = updateSource.indexOf("`)", queryStart);
+    assert.ok(queryEnd > queryStart, "active-run query must be terminated");
+    queries.push(updateSource.slice(queryStart + 1, queryEnd));
+    cursor = queryEnd + 2;
+  }
+  assert.equal(queries.length, 2, "durable and legacy drain queries are required");
 
   const database = new DatabaseSync(":memory:");
   database.exec(`CREATE TABLE runs (
@@ -38,7 +48,7 @@ test("active-run drain query executes with SQLite strict identifier quoting", ()
 
   assert.equal(
     database
-      .prepare(query)
+      .prepare(queries[0])
       .get(
         "running",
         "waiting_approval",
@@ -47,6 +57,18 @@ test("active-run drain query executes with SQLite strict identifier quoting", ()
       ).count,
     2,
   );
+
+  const legacyDatabase = new DatabaseSync(":memory:");
+  legacyDatabase.exec("CREATE TABLE runs (status TEXT NOT NULL)");
+  legacyDatabase.prepare("INSERT INTO runs (status) VALUES (?)").run("running");
+  legacyDatabase.prepare("INSERT INTO runs (status) VALUES (?)").run("queued");
+  assert.equal(
+    legacyDatabase
+      .prepare(queries[1])
+      .get("running", "waiting_approval").count,
+    1,
+  );
+  assert.match(updateSource, /PRAGMA table_info\(runs\)/);
 });
 
 function command(commandName, args, options = {}) {
