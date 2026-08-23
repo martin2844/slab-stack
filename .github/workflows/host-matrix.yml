@@ -1,0 +1,112 @@
+name: Validate packaged host matrix
+
+on:
+  workflow_call:
+    inputs:
+      release_version:
+        description: Exact signed release version to install
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      release_version:
+        description: Exact signed release version to install
+        required: true
+        default: 0.1.0-candidate.19
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  private-install:
+    name: ${{ matrix.label }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: Ubuntu 24.04 amd64
+            runner: ubuntu-24.04
+            architecture: amd64
+          - label: Ubuntu 24.04 arm64
+            runner: ubuntu-24.04-arm
+            architecture: arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    env:
+      SLAB_RELEASE_VERSION: ${{ inputs.release_version }}
+    steps:
+      - name: Verify native host
+        shell: bash
+        run: |
+          set -euo pipefail
+          source /etc/os-release
+          test "$ID" = ubuntu
+          test "$VERSION_ID" = 24.04
+          test "$(dpkg --print-architecture)" = "${{ matrix.architecture }}"
+
+      - name: Install exact signed release from public bootstrap
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo install -d -m 0700 /root/slab-matrix
+          admin_password=$(openssl rand -hex 24)
+          echo "::add-mask::$admin_password"
+          printf '%s\n' "$admin_password" |
+            sudo tee /root/slab-matrix/admin-password >/dev/null
+          sudo chmod 0600 /root/slab-matrix/admin-password
+          sudo tee /root/slab-matrix/install.conf >/dev/null <<'EOF'
+          SLAB_INSTALL_DIRECTORY=/opt/slab
+          SLAB_ACCESS_MODE=private
+          SLAB_PRIVATE_BIND_IP=127.0.0.1
+          SLAB_PRIVATE_PORT=3009
+          SLAB_COMPOSE_PROJECT_NAME=slab
+          SLAB_ADMIN_PASSWORD_FILE=/root/slab-matrix/admin-password
+          EOF
+          sudo chmod 0600 /root/slab-matrix/install.conf
+          curl --proto '=https' --tlsv1.2 --fail --silent --show-error \
+            --location --output /tmp/slab-install.sh \
+            "https://github.com/${GITHUB_REPOSITORY}/releases/download/v${SLAB_RELEASE_VERSION}/install.sh"
+          sudo sh /tmp/slab-install.sh --version "$SLAB_RELEASE_VERSION" -- \
+            --non-interactive --config /root/slab-matrix/install.conf
+          printf '%s\n' "$admin_password" |
+            sudo tee /root/slab-matrix/qa-password >/dev/null
+          sudo chmod 0600 /root/slab-matrix/qa-password
+          sudo rm -f /root/slab-matrix/admin-password
+
+      - name: Verify login, persistence, and idempotent reconcile
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(sudo sed -n '1p' /opt/slab/VERSION)" = "$SLAB_RELEASE_VERSION"
+          test "$(sudo jq -r .status /opt/slab/config/install-state.json)" = READY_NO_RUNTIME
+          test "$(systemctl is-active slab.service)" = active
+          curl --fail --silent --show-error http://127.0.0.1:3009/health >/dev/null
+          curl --fail --silent --show-error http://127.0.0.1:3009/ready >/dev/null
+
+          admin_password=$(sudo sed -n '1p' /root/slab-matrix/qa-password)
+          echo "::add-mask::$admin_password"
+          jq -nc --arg password "$admin_password" '{password:$password}' |
+            curl --fail --silent --show-error \
+              --cookie-jar /tmp/slab-cookies \
+              --header 'Origin: http://127.0.0.1:3009' \
+              --header 'Content-Type: application/json' \
+              --data-binary @- http://127.0.0.1:3009/api/auth/login |
+            jq -e '.data.authenticated == true' >/dev/null
+          agent_id=$(jq -nc \
+            '{name:"Matrix QA",role:"Release validation",instructions:"Validate that packaged state survives an idempotent installer reconcile.",model:"default",enabled:true,fullAccess:false}' |
+            curl --fail --silent --show-error \
+              --cookie /tmp/slab-cookies \
+              --header 'Origin: http://127.0.0.1:3009' \
+              --header 'Content-Type: application/json' \
+              --data-binary @- http://127.0.0.1:3009/api/agents |
+            jq -er .data.id)
+
+          sudo sh /tmp/slab-install.sh --version "$SLAB_RELEASE_VERSION" -- \
+            --non-interactive --config /root/slab-matrix/install.conf
+          curl --fail --silent --show-error \
+            --cookie /tmp/slab-cookies http://127.0.0.1:3009/api/agents |
+            jq -e --arg id "$agent_id" 'any(.data[]; .id == $id)' >/dev/null
+          sudo slabctl doctor --json |
+            jq -e '.installedVersion == env.SLAB_RELEASE_VERSION and all(.checks[]; .status != "fail")' >/dev/null
+          sudo rm -f /root/slab-matrix/qa-password /tmp/slab-cookies

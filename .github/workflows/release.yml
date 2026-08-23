@@ -12,6 +12,9 @@ jobs:
   release:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    outputs:
+      channel: ${{ steps.release.outputs.channel }}
+      version: ${{ steps.release.outputs.version }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -98,12 +101,40 @@ jobs:
             --title "Slab Stack ${{ steps.release.outputs.version }}" \
             --notes "Signed, versioned Slab self-hosted installer bundle." \
             "${release_flags[@]}"
-          channel="${{ steps.release.outputs.channel }}"
-          channel_tag="channel-$channel"
-          if ! gh release view "$channel_tag" >/dev/null 2>&1; then
-            gh release create "$channel_tag" --prerelease \
-              --title "Slab $channel channel" \
-              --notes "Machine-readable signed pointer for the Slab $channel channel."
+
+  stable-host-matrix:
+    needs: release
+    if: needs.release.outputs.channel == 'stable'
+    uses: ./.github/workflows/host-matrix.yml
+    with:
+      release_version: ${{ needs.release.outputs.version }}
+
+  publish-channel:
+    needs: [release, stable-host-matrix]
+    if: >-
+      always() &&
+      needs.release.result == 'success' &&
+      (needs.release.outputs.channel != 'stable' ||
+       needs.stable-host-matrix.result == 'success')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Publish signed channel pointer
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CHANNEL: ${{ needs.release.outputs.channel }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir dist
+          gh release download "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
+            --pattern "$CHANNEL.json" --pattern "$CHANNEL.json.sig" --dir dist
+          channel_tag="channel-$CHANNEL"
+          if ! gh release view "$channel_tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create "$channel_tag" --repo "$GITHUB_REPOSITORY" --prerelease \
+              --title "Slab $CHANNEL channel" \
+              --notes "Machine-readable signed pointer for the Slab $CHANNEL channel."
           fi
-          gh release upload "$channel_tag" \
-            "dist/$channel.json" "dist/$channel.json.sig" --clobber
+          gh release upload "$channel_tag" --repo "$GITHUB_REPOSITORY" \
+            "dist/$CHANNEL.json" "dist/$CHANNEL.json.sig" --clobber
