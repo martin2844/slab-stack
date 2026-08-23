@@ -18,6 +18,7 @@ backup_file=$slabctl_root/usr/local/lib/slab-stack/backup.sh
 release_client_file=$slabctl_root/usr/local/lib/slab-stack/release-client.sh
 release_public_key_file=$slabctl_root/usr/local/lib/slab-stack/release-signing-public.pem
 update_file=$slabctl_root/usr/local/lib/slab-stack/update.sh
+doctor_file=$slabctl_root/usr/local/lib/slab-stack/doctor.sh
 
 [ "$(id -u)" -eq 0 ] || [ -n "$slabctl_root" ] || {
   echo "slabctl must run as root (use sudo)." >&2
@@ -49,14 +50,15 @@ if [ ! -f "$backup_file" ] || [ -L "$backup_file" ]; then
 fi
 if [ ! -f "$release_client_file" ] || [ -L "$release_client_file" ] ||
   [ ! -f "$release_public_key_file" ] || [ -L "$release_public_key_file" ] ||
-  [ ! -f "$update_file" ] || [ -L "$update_file" ]
+  [ ! -f "$update_file" ] || [ -L "$update_file" ] ||
+  [ ! -f "$doctor_file" ] || [ -L "$doctor_file" ]
 then
   echo "slabctl: release verification metadata is missing or unsafe" >&2
   exit 1
 fi
 for management_file in "$pointer_file" "$library_file" "$lifecycle_file" \
   "$domain_file" "$proton_file" "$backup_file" "$release_client_file" \
-  "$release_public_key_file" "$update_file"
+  "$release_public_key_file" "$update_file" "$doctor_file"
 do
   [ "$(stat -c '%u' "$management_file")" -eq "$SLABCTL_EXPECTED_OWNER_UID" ] || {
     echo "slabctl: management metadata has an unexpected owner" >&2
@@ -84,6 +86,8 @@ SLABCTL_INSTALL_DIRECTORY=$(sed -n '1p' "$pointer_file")
 . "$release_client_file"
 # shellcheck source=installer/lib/update.sh
 . "$update_file"
+# shellcheck source=installer/lib/doctor.sh
+. "$doctor_file"
 slab_acquire_management_lock "$SLABCTL_INSTALL_DIRECTORY"
 slabctl_load_installation "$SLABCTL_INSTALL_DIRECTORY"
 
@@ -106,6 +110,8 @@ Usage:
   sudo slabctl update check [--channel stable|candidate]
   sudo slabctl update apply [--channel stable|candidate] [--yes]
   sudo slabctl update rollback [--yes]
+  sudo slabctl doctor [--json]
+  sudo slabctl support-bundle [--yes] [DESTINATION]
 
 Device authorization is the default login method. API keys are accepted only
 through a hidden interactive prompt or stdin and are never written by slabctl.
@@ -247,6 +253,30 @@ case "${1:-}" in
       rollback) slabctl_update_rollback "$update_confirmed" ;;
       *) slabctl_usage >&2; exit 2 ;;
     esac
+    ;;
+  doctor)
+    case "${2:-}" in
+      '') [ "$#" -eq 1 ] || { slabctl_usage >&2; exit 2; }; slabctl_doctor text ;;
+      --json) [ "$#" -eq 2 ] || { slabctl_usage >&2; exit 2; }; slabctl_doctor json ;;
+      *) slabctl_usage >&2; exit 2 ;;
+    esac
+    ;;
+  support-bundle)
+    shift
+    support_confirmed=0
+    support_destination=
+    while [ "$#" -gt 0 ]; do
+      case "$1" in
+        --yes) support_confirmed=1 ;;
+        -*) slabctl_usage >&2; exit 2 ;;
+        *)
+          [ -z "$support_destination" ] || { slabctl_usage >&2; exit 2; }
+          support_destination=$1
+          ;;
+      esac
+      shift
+    done
+    slabctl_support_bundle "$support_destination" "$support_confirmed"
     ;;
   --help | -h) slabctl_usage ;;
   *) slabctl_usage >&2; exit 2 ;;

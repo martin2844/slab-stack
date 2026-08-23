@@ -56,6 +56,10 @@ function fixture(initialStatus = "READY_NO_RUNTIME", accessMode = "private") {
     path.join(hostRoot, "usr/local/lib/slab-stack/update.sh"),
   );
   fs.copyFileSync(
+    path.join(root, "installer/lib/doctor.sh"),
+    path.join(hostRoot, "usr/local/lib/slab-stack/doctor.sh"),
+  );
+  fs.copyFileSync(
     path.join(root, "contracts/release-signing-public.pem"),
     path.join(hostRoot, "usr/local/lib/slab-stack/release-signing-public.pem"),
   );

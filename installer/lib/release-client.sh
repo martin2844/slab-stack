@@ -5,14 +5,18 @@ SLAB_RELEASE_TEMPORARY_DIRECTORY=
 SLAB_RELEASE_VERSION=
 SLAB_RELEASE_BUNDLE_ROOT=
 SLAB_RELEASE_MANIFEST=
+SLAB_RELEASE_CHANNEL_FILE=
+SLAB_RELEASE_MANIFEST_SHA256=
 
 slabctl_release_download() {
   source_url=$1
   destination=$2
+  maximum_seconds=${3:-${SLAB_RELEASE_DOWNLOAD_MAX_SECONDS:-300}}
   case "$source_url" in
     https://*)
       curl --proto '=https' --proto-redir '=https' --tlsv1.2 \
         --location --fail --silent --show-error \
+        --connect-timeout 10 --max-time "$maximum_seconds" \
         --output "$destination" "$source_url"
       ;;
     http://* | file://*)
@@ -23,6 +27,7 @@ slabctl_release_download() {
       protocol=${source_url%%:*}
       curl --proto "=$protocol" --proto-redir "=$protocol" \
         --location --fail --silent --show-error \
+        --connect-timeout 10 --max-time "$maximum_seconds" \
         --output "$destination" "$source_url"
       ;;
     *) slabctl_error "unsupported release URL"; return 1 ;;
@@ -109,9 +114,11 @@ slabctl_release_cleanup() {
   SLAB_RELEASE_VERSION=
   SLAB_RELEASE_BUNDLE_ROOT=
   SLAB_RELEASE_MANIFEST=
+  SLAB_RELEASE_CHANNEL_FILE=
+  SLAB_RELEASE_MANIFEST_SHA256=
 }
 
-slabctl_release_prepare() {
+slabctl_release_prepare_channel() {
   requested_channel=$1
   public_key=$2
   case "$requested_channel" in
@@ -127,9 +134,9 @@ slabctl_release_prepare() {
   channel_file=$SLAB_RELEASE_TEMPORARY_DIRECTORY/$requested_channel.json
   channel_signature=$channel_file.sig
   slabctl_release_download "$channel_base/$requested_channel.json" \
-    "$channel_file" || return 1
+    "$channel_file" "${SLAB_RELEASE_CHANNEL_MAX_SECONDS:-30}" || return 1
   slabctl_release_download "$channel_base/$requested_channel.json.sig" \
-    "$channel_signature" || return 1
+    "$channel_signature" "${SLAB_RELEASE_CHANNEL_MAX_SECONDS:-30}" || return 1
   openssl pkeyutl -verify -rawin -pubin -inkey "$public_key" \
     -in "$channel_file" -sigfile "$channel_signature" >/dev/null 2>&1 || {
       slabctl_error "channel signature verification failed"
@@ -140,6 +147,17 @@ slabctl_release_prepare() {
   version=$(jq -er '.stackVersion' "$channel_file") || return 1
   slabctl_release_validate_version "$version" || return 1
   expected_manifest_sha256=$(jq -er '.manifestSha256' "$channel_file") || return 1
+  SLAB_RELEASE_VERSION=$version
+  SLAB_RELEASE_CHANNEL_FILE=$channel_file
+  SLAB_RELEASE_MANIFEST_SHA256=$expected_manifest_sha256
+}
+
+slabctl_release_prepare() {
+  requested_channel=$1
+  public_key=$2
+  slabctl_release_prepare_channel "$requested_channel" "$public_key" || return 1
+  version=$SLAB_RELEASE_VERSION
+  expected_manifest_sha256=$SLAB_RELEASE_MANIFEST_SHA256
   release_base=${SLAB_RELEASE_BUNDLE_BASE_URL:-https://github.com/martin2844/slab-stack/releases/download}
   asset_name=slab-stack-$version.tar.gz
   version_base=$release_base/v$version
@@ -194,7 +212,6 @@ slabctl_release_prepare() {
     slabctl_error "bundle manifest does not match the signed channel"
     return 1
   }
-  SLAB_RELEASE_VERSION=$version
   SLAB_RELEASE_BUNDLE_ROOT=$versioned_root
   SLAB_RELEASE_MANIFEST=$manifest
 }

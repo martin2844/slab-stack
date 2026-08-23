@@ -66,10 +66,12 @@ slab_bootstrap_validate_version() {
 slab_bootstrap_download() {
   source_url=$1
   destination=$2
+  maximum_seconds=${3:-300}
   case "$source_url" in
     https://*)
       curl --proto '=https' --proto-redir '=https' --tlsv1.2 \
         --location --fail --silent --show-error \
+        --connect-timeout 10 --max-time "$maximum_seconds" \
         --output "$destination" "$source_url"
       ;;
     http://* | file://*)
@@ -78,6 +80,7 @@ slab_bootstrap_download() {
       protocol=${source_url%%:*}
       curl --proto "=$protocol" --proto-redir "=$protocol" \
         --location --fail --silent --show-error \
+        --connect-timeout 10 --max-time "$maximum_seconds" \
         --output "$destination" "$source_url"
       ;;
     *) slab_bootstrap_fail "unsupported release URL" ;;
@@ -185,9 +188,9 @@ if [ -z "$requested_version" ]; then
   channel_file=$SLAB_BOOTSTRAP_TEMPORARY_DIRECTORY/channel.json
   channel_signature=$SLAB_BOOTSTRAP_TEMPORARY_DIRECTORY/channel.json.sig
   slab_bootstrap_download \
-    "$channel_base_url/$requested_channel.json" "$channel_file"
+    "$channel_base_url/$requested_channel.json" "$channel_file" 30
   slab_bootstrap_download \
-    "$channel_base_url/$requested_channel.json.sig" "$channel_signature"
+    "$channel_base_url/$requested_channel.json.sig" "$channel_signature" 30
   openssl pkeyutl -verify -rawin -pubin -inkey "$public_key" \
     -in "$channel_file" -sigfile "$channel_signature" >/dev/null 2>&1 ||
     slab_bootstrap_fail "channel signature verification failed"

@@ -136,3 +136,14 @@ metadata, waits for service and application readiness, and records a sanitized
 terminal state. Compatible failures restore the previous release files.
 Incompatible migration failures stop with `RECOVERY_REQUIRED` and point to the
 verified backup rather than claiming an unsafe image rollback worked.
+
+Operational diagnosis is available without SSH archaeology:
+
+```bash
+sudo slabctl doctor
+sudo slabctl support-bundle
+```
+
+The support archive is bounded, sanitized, root-private, and prints its exact
+file list for review before creation. It excludes product databases, prompts,
+messages, tool payloads, documents, and credential values.

@@ -198,6 +198,35 @@ compatibility, and terminal guidance. `RECOVERY_REQUIRED` means the operator
 must keep the stack stopped and use the referenced verified backup; `slabctl`
 never claims an unsafe rollback succeeded.
 
+## Diagnostics and support bundle
+
+Run the host-side diagnostic without exposing application content:
+
+```sh
+sudo slabctl doctor
+sudo slabctl doctor --json
+```
+
+It checks installed release identity and permissions, Docker/Compose, service
+health, SQLite migration metadata, disk/inode capacity, runtime availability,
+the last recorded backup, the signed update channel, and the configured public
+health endpoint. A runtime that has not been authenticated and a missing backup
+are warnings; unsafe release identity, unhealthy services, unreadable schemas,
+or an unreachable configured endpoint fail the diagnosis.
+
+For support, review the exact included file list before creating a root-private
+archive:
+
+```sh
+sudo slabctl support-bundle
+sudo slabctl support-bundle --yes /mnt/support
+```
+
+The bundle contains structured doctor output, release metadata, Compose status,
+bounded sanitized logs, configuration-presence booleans, and identifiers for up
+to 25 recent terminal Runs. It excludes SQLite databases, secret files and
+values, prompts, messages, tool payloads, and document bodies.
+
 ## Codex authentication
 
 The installer places a versioned management command at `/usr/local/bin/slabctl`.
