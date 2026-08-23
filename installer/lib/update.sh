@@ -1,4 +1,5 @@
 #!/bin/sh
+# shellcheck disable=SC2015,SC2031,SC2154,SC2317
 
 slabctl_update_state_path() {
   printf '%s/config/update-state.json\n' "$SLABCTL_INSTALL_DIRECTORY"

@@ -1,4 +1,5 @@
 #!/bin/sh
+# shellcheck disable=SC2015,SC2154,SC2317
 
 slabctl_doctor_sanitize_stream() {
   LC_ALL=C sed -E \
@@ -273,7 +274,7 @@ slabctl_support_bundle() (
       > "$temporary_directory/logs/$service_name.log" || true
   done
   (
-    cd "$temporary_directory"
+    cd "$temporary_directory" || exit 1
     find . -type f -print | sed 's#^./##' | LC_ALL=C sort > included-files.txt
   )
   echo "Support bundle will include:"

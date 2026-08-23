@@ -1,4 +1,5 @@
 #!/bin/sh
+# shellcheck disable=SC2317
 
 slab_install_management_cli() (
   bundle_root=$1
