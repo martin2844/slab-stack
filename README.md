@@ -21,7 +21,7 @@ The implementation source of truth is:
 ## Current status
 
 The current immutable stack candidate is recorded in
-[`releases/v0.1.0-candidate.10.json`](releases/v0.1.0-candidate.10.json). It pins
+[`releases/v0.1.0-candidate.11.json`](releases/v0.1.0-candidate.11.json). It pins
 public amd64/arm64 images for all five services and the tested Slab Runner +
 Codex CLI `0.148.0` pairing. No stable channel is published yet: the candidate
 must still pass the complete Compose and clean-VPS installation matrix.
@@ -55,7 +55,7 @@ templates, image pinning, network exposure, and Compose rendering with
 development fixtures. To render the immutable image environment for a release:
 
 ```bash
-node scripts/render-image-env.mjs releases/v0.1.0-candidate.10.json
+node scripts/render-image-env.mjs releases/v0.1.0-candidate.11.json
 ```
 
 Once a candidate manifest is ready, run the destructive-to-its-own-fixture only
@@ -85,7 +85,7 @@ bytes, and removes the fixture volumes on exit.
 Build the exact candidate bundle locally:
 
 ```bash
-./scripts/package-release.sh releases/v0.1.0-candidate.10.json dist
+./scripts/package-release.sh releases/v0.1.0-candidate.11.json dist
 ```
 
 The packaging step is deterministic for a given manifest and source tree. It
@@ -99,14 +99,14 @@ Until the stable channel is promoted, a reviewed candidate can be installed
 explicitly with the release bootstrap:
 
 ```bash
-sudo sh install.sh --version 0.1.0-candidate.10
+sudo sh install.sh --version 0.1.0-candidate.11
 ```
 
 Bootstrap options precede installer options. For example, an inspect-only host
 check is:
 
 ```bash
-sudo sh install.sh --version 0.1.0-candidate.10 -- --dry-run
+sudo sh install.sh --version 0.1.0-candidate.11 -- --dry-run
 ```
 
 ## Repository layout
