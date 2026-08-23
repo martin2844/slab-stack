@@ -43,6 +43,10 @@ function fixture(initialStatus = "READY_NO_RUNTIME", accessMode = "private") {
     path.join(root, "installer/lib/proton.sh"),
     path.join(hostRoot, "usr/local/lib/slab-stack/proton.sh"),
   );
+  fs.copyFileSync(
+    path.join(root, "installer/lib/backup.sh"),
+    path.join(hostRoot, "usr/local/lib/slab-stack/backup.sh"),
+  );
   fs.writeFileSync(
     path.join(hostRoot, "etc/slab/install-directory"),
     `${installDirectory}\n`,

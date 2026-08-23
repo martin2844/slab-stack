@@ -37,6 +37,8 @@ cp "$ROOT/templates/install.env.example" "$FIXTURE_DIR/install.env"
 
 jq -e '.schemaVersion == 1 and .channel == "development"' \
   "$ROOT/releases/example-manifest.json" >/dev/null
+jq -e '.properties.format.const == "slab-backup-v1" and .properties.schemaVersion.const == 1' \
+  "$ROOT/contracts/backup-manifest.schema.json" >/dev/null
 
 for manifest in "$ROOT"/releases/*.json; do
   node "$ROOT/scripts/validate-manifest.mjs" "$manifest" >/dev/null
@@ -131,6 +133,7 @@ done
 sh -n "$ROOT/scripts/check.sh"
 sh -n "$ROOT/scripts/full-stack-smoke.sh"
 sh -n "$ROOT/scripts/installer-smoke.sh"
+sh -n "$ROOT/scripts/backup-smoke.sh"
 sh -n "$ROOT/scripts/package-release.sh"
 sh -n "$ROOT/bootstrap/install.sh"
 sh -n "$ROOT/installer/install.sh"
@@ -149,6 +152,7 @@ sh -n "$ROOT/installer/lib/proton.sh"
 sh -n "$ROOT/installer/lib/slabctl-install.sh"
 sh -n "$ROOT/installer/lib/lifecycle.sh"
 sh -n "$ROOT/installer/lib/domain.sh"
+sh -n "$ROOT/installer/lib/backup.sh"
 sh -n "$ROOT/installer/lib/systemd.sh"
 sh -n "$ROOT/bin/slabctl"
 node --check "$ROOT/scripts/validate-manifest.mjs"

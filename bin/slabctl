@@ -14,6 +14,7 @@ library_file=$slabctl_root/usr/local/lib/slab-stack/codex.sh
 lifecycle_file=$slabctl_root/usr/local/lib/slab-stack/lifecycle.sh
 domain_file=$slabctl_root/usr/local/lib/slab-stack/domain.sh
 proton_file=$slabctl_root/usr/local/lib/slab-stack/proton.sh
+backup_file=$slabctl_root/usr/local/lib/slab-stack/backup.sh
 
 [ "$(id -u)" -eq 0 ] || [ -n "$slabctl_root" ] || {
   echo "slabctl must run as root (use sudo)." >&2
@@ -39,8 +40,12 @@ if [ ! -f "$proton_file" ] || [ -L "$proton_file" ]; then
   echo "slabctl: Proton management library is missing or unsafe" >&2
   exit 1
 fi
+if [ ! -f "$backup_file" ] || [ -L "$backup_file" ]; then
+  echo "slabctl: backup management library is missing or unsafe" >&2
+  exit 1
+fi
 for management_file in "$pointer_file" "$library_file" "$lifecycle_file" \
-  "$domain_file" "$proton_file"
+  "$domain_file" "$proton_file" "$backup_file"
 do
   [ "$(stat -c '%u' "$management_file")" -eq "$SLABCTL_EXPECTED_OWNER_UID" ] || {
     echo "slabctl: management metadata has an unexpected owner" >&2
@@ -62,6 +67,8 @@ SLABCTL_INSTALL_DIRECTORY=$(sed -n '1p' "$pointer_file")
 . "$domain_file"
 # shellcheck source=installer/lib/proton.sh
 . "$proton_file"
+# shellcheck source=installer/lib/backup.sh
+. "$backup_file"
 slab_acquire_management_lock "$SLABCTL_INSTALL_DIRECTORY"
 slabctl_load_installation "$SLABCTL_INSTALL_DIRECTORY"
 
@@ -78,6 +85,9 @@ Usage:
   sudo slabctl codex logout
   sudo slabctl proton setup
   sudo slabctl proton status
+  sudo slabctl backup [--encrypt-with IDENTITY] [DESTINATION]
+  sudo slabctl backup verify [--identity IDENTITY] ARCHIVE
+  sudo slabctl restore [--dry-run] [--yes] [--identity IDENTITY] ARCHIVE
 
 Device authorization is the default login method. API keys are accepted only
 through a hidden interactive prompt or stdin and are never written by slabctl.
@@ -120,6 +130,80 @@ case "${1:-}" in
       status) [ "$#" -eq 2 ] || { slabctl_usage >&2; exit 2; }; slabctl_proton_command -T --status ;;
       *) slabctl_usage >&2; exit 2 ;;
     esac
+    ;;
+  backup)
+    case "${2:-}" in
+      verify)
+        shift 2
+        backup_identity=
+        backup_archive=
+        while [ "$#" -gt 0 ]; do
+          case "$1" in
+            --identity)
+              [ "$#" -ge 2 ] || { slabctl_usage >&2; exit 2; }
+              backup_identity=$2
+              shift
+              ;;
+            -*) slabctl_usage >&2; exit 2 ;;
+            *)
+              [ -z "$backup_archive" ] || { slabctl_usage >&2; exit 2; }
+              backup_archive=$1
+              ;;
+          esac
+          shift
+        done
+        [ -n "$backup_archive" ] || { slabctl_usage >&2; exit 2; }
+        slabctl_backup_verify "$backup_archive" "$backup_identity"
+        ;;
+      *)
+        shift
+        backup_identity=
+        backup_destination=
+        while [ "$#" -gt 0 ]; do
+          case "$1" in
+            --encrypt-with)
+              [ "$#" -ge 2 ] || { slabctl_usage >&2; exit 2; }
+              backup_identity=$2
+              shift
+              ;;
+            -*) slabctl_usage >&2; exit 2 ;;
+            *)
+              [ -z "$backup_destination" ] || { slabctl_usage >&2; exit 2; }
+              backup_destination=$1
+              ;;
+          esac
+          shift
+        done
+        slabctl_backup_create "$backup_destination" "$backup_identity"
+        ;;
+    esac
+    ;;
+  restore)
+    restore_dry_run=0
+    restore_confirmed=0
+    restore_identity=
+    restore_archive=
+    shift
+    while [ "$#" -gt 0 ]; do
+      case "$1" in
+        --dry-run) restore_dry_run=1 ;;
+        --yes) restore_confirmed=1 ;;
+        --identity)
+          [ "$#" -ge 2 ] || { slabctl_usage >&2; exit 2; }
+          restore_identity=$2
+          shift
+          ;;
+        -*) slabctl_usage >&2; exit 2 ;;
+        *)
+          [ -z "$restore_archive" ] || { slabctl_usage >&2; exit 2; }
+          restore_archive=$1
+          ;;
+      esac
+      shift
+    done
+    [ -n "$restore_archive" ] || { slabctl_usage >&2; exit 2; }
+    slabctl_restore_archive "$restore_archive" "$restore_dry_run" \
+      "$restore_confirmed" "$restore_identity"
     ;;
   --help | -h) slabctl_usage ;;
   *) slabctl_usage >&2; exit 2 ;;

@@ -1,0 +1,104 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://slab.ar/schemas/backup-manifest-v1.json",
+  "title": "Slab backup manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "format",
+    "createdAt",
+    "stackVersion",
+    "source",
+    "images",
+    "files",
+    "volumes"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "format": { "const": "slab-backup-v1" },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "stackVersion": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?$"
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["projectName", "accessMode"],
+      "properties": {
+        "projectName": { "type": "string", "minLength": 1 },
+        "accessMode": { "enum": ["private", "domain"] }
+      }
+    },
+    "images": { "type": "object" },
+    "files": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/file" }
+    },
+    "volumes": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "logicalName",
+          "dockerVolume",
+          "archivePath",
+          "sha256",
+          "bytes",
+          "schema"
+        ],
+        "properties": {
+          "logicalName": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_.-]+$"
+          },
+          "dockerVolume": { "type": "string", "minLength": 1 },
+          "archivePath": {
+            "type": "string",
+            "pattern": "^volumes/[A-Za-z0-9_.-]+\\.tar\\.gz$"
+          },
+          "sha256": { "$ref": "#/$defs/sha256" },
+          "bytes": { "type": "integer", "minimum": 0 },
+          "schema": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "migrationCount",
+              "latestMigration",
+              "userVersion"
+            ],
+            "properties": {
+              "kind": { "enum": ["sqlite", "opaque"] },
+              "migrationCount": { "type": ["integer", "null"], "minimum": 0 },
+              "latestMigration": { "type": ["string", "null"] },
+              "userVersion": { "type": ["integer", "null"], "minimum": 0 }
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "file": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256", "bytes"],
+      "properties": {
+        "path": {
+          "type": "string",
+          "pattern": "^(metadata|secrets)/[A-Za-z0-9._-]+$"
+        },
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "bytes": { "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}

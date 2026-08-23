@@ -23,6 +23,7 @@ installer/lib/health.sh
 installer/lib/codex.sh
 installer/lib/lifecycle.sh
 installer/lib/domain.sh
+installer/lib/backup.sh
 installer/lib/systemd.sh
 ```
 
@@ -114,6 +115,58 @@ the current attempt, completed phases, immutable Compose/access identity, and
 the last known good result. Reruns reconcile that same identity and refuse
 changes that would silently fork the stack into a second Compose project or
 data set.
+
+## Backup and restore
+
+`slabctl` creates a consistent, root-private archive by briefly stopping the
+running services, archiving every Compose-managed state volume, and starting
+the stack again. The archive includes the installed release metadata, image
+digests, SQLite migration versions, file sizes, and SHA-256 checksums. A backup
+is not reported as successful until the complete archive verifies.
+
+```sh
+sudo slabctl backup
+sudo slabctl backup /mnt/slab-backups
+sudo slabctl backup /mnt/slab-backups/workspace-2026-08-23.tar.gz
+sudo slabctl backup verify /mnt/slab-backups/workspace-2026-08-23.tar.gz
+```
+
+The default destination is `/var/backups/slab`. Archives contain workspace
+secrets and therefore use mode `0600`; protect or encrypt the destination when
+moving a backup off-host.
+
+For an encrypted archive, generate and secure an age identity once, keep a
+separate recovery copy, and pass the root-private identity file explicitly:
+
+```sh
+sudo apt-get install age
+sudo sh -c 'umask 077; age-keygen -o /root/slab-backup.agekey'
+sudo slabctl backup --encrypt-with /root/slab-backup.agekey /mnt/slab-backups
+sudo slabctl backup verify \
+  --identity /root/slab-backup.agekey \
+  /mnt/slab-backups/slab-backup-<version>-<time>.tar.gz.age
+```
+
+Encryption wraps the same verified `slab-backup-v1` logical archive. Slab
+decrypts and re-verifies the complete inner manifest before reporting success.
+
+Restore is intentionally stricter. The target must already have the exact same
+stack version installed, its declared volume set must match the archive, and
+the stack must be stopped. Inspect the operation first:
+
+```sh
+sudo slabctl restore --dry-run /mnt/slab-backups/workspace-2026-08-23.tar.gz
+sudo slabctl stack stop
+sudo slabctl restore /mnt/slab-backups/workspace-2026-08-23.tar.gz
+```
+
+Pass `--identity /root/slab-backup.agekey` for an encrypted archive.
+
+Interactive restore requires typing `RESTORE`; automation must pass `--yes`
+explicitly. A successful restore starts the services, runs the release's
+idempotent migrations, and waits for health. If mutation begins but the restore
+or readiness check fails, `config/restore-state.json` records
+`RECOVERY_REQUIRED` and the command never claims success.
 
 ## Codex authentication
 

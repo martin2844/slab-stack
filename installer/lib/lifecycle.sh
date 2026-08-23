@@ -22,3 +22,32 @@ slabctl_stack_restart() {
 slabctl_stack_status() {
   slabctl_compose ps
 }
+
+slabctl_service_health_status() {
+  service_name=$1
+  container_id=$(slabctl_compose ps -q "$service_name" 2>/dev/null || true)
+  [ -n "$container_id" ] || return 1
+  docker inspect "$container_id" \
+    --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}'
+}
+
+slabctl_wait_for_healthy_stack() {
+  attempts=${SLABCTL_HEALTH_ATTEMPTS:-90}
+  interval=${SLABCTL_HEALTH_INTERVAL_SECONDS:-2}
+  attempt=1
+  while [ "$attempt" -le "$attempts" ]; do
+    pending=
+    for service_name in slab-api slab-mcp slab-docs slab-email slab-runner slab-agents; do
+      health=$(slabctl_service_health_status "$service_name" 2>/dev/null || true)
+      [ "$health" = healthy ] || pending="$pending $service_name"
+    done
+    if [ "$SLABCTL_ACCESS_MODE" = domain ]; then
+      caddy_status=$(slabctl_service_health_status caddy 2>/dev/null || true)
+      [ "$caddy_status" = running ] || pending="$pending caddy"
+    fi
+    [ -z "$pending" ] && return 0
+    sleep "$interval"
+    attempt=$((attempt + 1))
+  done
+  slabctl_error "timed out waiting for healthy services:$pending"
+}

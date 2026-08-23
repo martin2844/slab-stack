@@ -37,3 +37,5 @@ jobs:
         run: ./scripts/full-stack-smoke.sh
       - name: Verify versioned installer and idempotent rerun
         run: ./scripts/installer-smoke.sh
+      - name: Verify backup, archive validation, and destructive restore
+        run: ./scripts/backup-smoke.sh

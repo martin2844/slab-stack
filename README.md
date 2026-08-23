@@ -68,6 +68,17 @@ It creates a unique Compose project and temporary secrets, bootstraps login,
 checks Work/Docs/Runner/Email through Slab Agents, verifies restart persistence,
 and removes only that project and its volumes on exit.
 
+The backup/restore contract also has a destructive-to-its-own-fixture smoke:
+
+```bash
+./scripts/check.sh
+./scripts/backup-smoke.sh
+```
+
+It creates isolated labeled volumes, backs up non-empty data and secrets,
+verifies the archive, mutates the fixture, restores it, verifies the original
+bytes, and removes the fixture volumes on exit.
+
 ## Package a release
 
 Build the exact candidate bundle locally:
