@@ -130,11 +130,22 @@ slabctl_resolve_volume() {
     --filter "label=com.docker.compose.project=$SLABCTL_PROJECT_NAME" \
     --filter "label=com.docker.compose.volume=$logical_name") || return 1
   match_count=$(printf '%s\n' "$matches" | awk 'NF { count += 1 } END { print count + 0 }')
-  [ "$match_count" -eq 1 ] || {
+  if [ "$match_count" -eq 1 ]; then
+    printf '%s\n' "$matches"
+    return 0
+  fi
+  [ "$match_count" -eq 0 ] || {
     slabctl_error "expected one Docker volume for $logical_name, found $match_count"
     return 1
   }
-  printf '%s\n' "$matches"
+
+  legacy_volume=${SLABCTL_PROJECT_NAME}_$logical_name
+  if docker volume inspect "$legacy_volume" >/dev/null 2>&1; then
+    printf '%s\n' "$legacy_volume"
+    return 0
+  fi
+  slabctl_error "expected one Docker volume for $logical_name, found 0"
+  return 1
 }
 
 slabctl_database_schema() {

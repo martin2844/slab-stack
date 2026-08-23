@@ -134,6 +134,39 @@ function backupShell(script, args = [], env = {}) {
   );
 }
 
+test("resolves legacy Compose volumes that predate project labels", () => {
+  const result = backupShell(`
+    SLABCTL_PROJECT_NAME=slab
+    slabctl_error() { echo "slabctl: $*" >&2; return 1; }
+    docker() {
+      if [ "$1 $2 $3" = "volume ls -q" ]; then
+        return 0
+      fi
+      if [ "$1 $2 $3" = "volume inspect slab_caddy_config" ]; then
+        return 0
+      fi
+      return 1
+    }
+    slabctl_resolve_volume caddy_config
+  `);
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout.trim(), "slab_caddy_config");
+});
+
+test("does not guess a legacy volume when the exact Compose name is absent", () => {
+  const result = backupShell(`
+    SLABCTL_PROJECT_NAME=slab
+    slabctl_error() { echo "slabctl: $*" >&2; return 1; }
+    docker() {
+      [ "$1 $2 $3" = "volume ls -q" ] && return 0
+      return 1
+    }
+    slabctl_resolve_volume missing_data
+  `);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /expected one Docker volume/);
+});
+
 test("verifies a versioned backup manifest and every declared payload", (t) => {
   const { archive } = backupFixture(t);
   const result = backupShell(

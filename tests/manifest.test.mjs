@@ -17,7 +17,7 @@ const imageEnvironmentRenderer = path.join(
 const candidatePath = path.join(
   root,
   "releases",
-  "v0.1.0-candidate.13.json",
+  "v0.1.0-candidate.14.json",
 );
 const example = JSON.parse(
   fs.readFileSync(path.join(root, "releases", "example-manifest.json"), "utf8"),
