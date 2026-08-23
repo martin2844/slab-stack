@@ -115,6 +115,20 @@ function createSignedRelease(t, { version = "0.1.0-test.1", symlink = false } = 
       2,
     )}\n`,
   );
+  assert.equal(
+    command("openssl", [
+      "pkeyutl",
+      "-sign",
+      "-rawin",
+      "-inkey",
+      privateKey,
+      "-in",
+      path.join(channels, "candidate.json"),
+      "-out",
+      path.join(channels, "candidate.json.sig"),
+    ]).status,
+    0,
+  );
 
   const reviewedPublicKey = fs
     .readFileSync(path.join(root, "contracts/release-signing-public.pem"), "utf8")
@@ -138,6 +152,7 @@ function createSignedRelease(t, { version = "0.1.0-test.1", symlink = false } = 
     directory,
     manifest,
     marker,
+    privateKey,
     publicKey,
     releases,
     version,
@@ -201,12 +216,38 @@ test("rejects signed bundles containing symbolic links", (t) => {
   assert.equal(fs.existsSync(fixture.marker), false);
 });
 
-test("rejects a channel whose manifest checksum does not match the signed bundle", (t) => {
+test("rejects channel metadata changed after signing", (t) => {
   const fixture = createSignedRelease(t);
   const channelPath = path.join(fixture.channels, "candidate.json");
   const channel = JSON.parse(fs.readFileSync(channelPath, "utf8"));
   channel.manifestSha256 = "0".repeat(64);
   fs.writeFileSync(channelPath, `${JSON.stringify(channel, null, 2)}\n`);
+  const result = runBootstrap(fixture, ["--channel", "candidate"]);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /channel signature verification failed/);
+  assert.equal(fs.existsSync(fixture.marker), false);
+});
+
+test("rejects a signed channel whose manifest checksum does not match the bundle", (t) => {
+  const fixture = createSignedRelease(t);
+  const channelPath = path.join(fixture.channels, "candidate.json");
+  const channel = JSON.parse(fs.readFileSync(channelPath, "utf8"));
+  channel.manifestSha256 = "0".repeat(64);
+  fs.writeFileSync(channelPath, `${JSON.stringify(channel, null, 2)}\n`);
+  assert.equal(
+    command("openssl", [
+      "pkeyutl",
+      "-sign",
+      "-rawin",
+      "-inkey",
+      fixture.privateKey,
+      "-in",
+      channelPath,
+      "-out",
+      `${channelPath}.sig`,
+    ]).status,
+    0,
+  );
   const result = runBootstrap(fixture, ["--channel", "candidate"]);
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /manifest does not match the selected channel/);
@@ -229,6 +270,7 @@ test("packages the same manifest reproducibly with only installer runtime files"
   assert.match(listing, /installer\/install\.sh/);
   assert.match(listing, /templates\/compose\.yml/);
   assert.match(listing, /bin\/slabctl/);
+  assert.match(listing, /contracts\/release-signing-public\.pem/);
   assert.match(listing, /releases\/v0\.1\.0-candidate\.10\.json/);
   assert.doesNotMatch(listing, /node_modules|\.git\//);
   const checksumLine = fs.readFileSync(path.join(first, `${asset}.sha256`), "utf8");

@@ -46,6 +46,15 @@ test("installs slabctl idempotently and pins it to one installation", () => {
     const domain = path.join(hostRoot, "usr/local/lib/slab-stack/domain.sh");
     const proton = path.join(hostRoot, "usr/local/lib/slab-stack/proton.sh");
     const backup = path.join(hostRoot, "usr/local/lib/slab-stack/backup.sh");
+    const releaseClient = path.join(
+      hostRoot,
+      "usr/local/lib/slab-stack/release-client.sh",
+    );
+    const releasePublicKey = path.join(
+      hostRoot,
+      "usr/local/lib/slab-stack/release-signing-public.pem",
+    );
+    const update = path.join(hostRoot, "usr/local/lib/slab-stack/update.sh");
     const pointer = path.join(hostRoot, "etc/slab/install-directory");
     assert.match(fs.readFileSync(binary, "utf8"), /slab-stack-managed: slabctl/);
     assert.match(fs.readFileSync(library, "utf8"), /slabctl_codex_login_device/);
@@ -53,6 +62,9 @@ test("installs slabctl idempotently and pins it to one installation", () => {
     assert.match(fs.readFileSync(domain, "utf8"), /slabctl_domain_verify/);
     assert.match(fs.readFileSync(proton, "utf8"), /slabctl_proton_setup/);
     assert.match(fs.readFileSync(backup, "utf8"), /slabctl_backup_create/);
+    assert.match(fs.readFileSync(releaseClient, "utf8"), /slabctl_release_prepare/);
+    assert.match(fs.readFileSync(releasePublicKey, "utf8"), /BEGIN PUBLIC KEY/);
+    assert.match(fs.readFileSync(update, "utf8"), /slabctl_update_apply/);
     assert.equal(fs.readFileSync(pointer, "utf8").trim(), firstInstall);
     assert.equal(fs.statSync(binary).mode & 0o777, 0o755);
     assert.equal(fs.statSync(pointer).mode & 0o777, 0o644);

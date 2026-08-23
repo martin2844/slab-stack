@@ -39,6 +39,8 @@ jq -e '.schemaVersion == 1 and .channel == "development"' \
   "$ROOT/releases/example-manifest.json" >/dev/null
 jq -e '.properties.format.const == "slab-backup-v1" and .properties.schemaVersion.const == 1' \
   "$ROOT/contracts/backup-manifest.schema.json" >/dev/null
+jq -e '.properties.schemaVersion.const == 1 and (.properties.status.enum | index("RECOVERY_REQUIRED") != null)' \
+  "$ROOT/contracts/update-state.schema.json" >/dev/null
 
 for manifest in "$ROOT"/releases/*.json; do
   node "$ROOT/scripts/validate-manifest.mjs" "$manifest" >/dev/null
@@ -153,6 +155,8 @@ sh -n "$ROOT/installer/lib/slabctl-install.sh"
 sh -n "$ROOT/installer/lib/lifecycle.sh"
 sh -n "$ROOT/installer/lib/domain.sh"
 sh -n "$ROOT/installer/lib/backup.sh"
+sh -n "$ROOT/installer/lib/release-client.sh"
+sh -n "$ROOT/installer/lib/update.sh"
 sh -n "$ROOT/installer/lib/systemd.sh"
 sh -n "$ROOT/bin/slabctl"
 node --check "$ROOT/scripts/validate-manifest.mjs"

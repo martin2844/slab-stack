@@ -168,6 +168,36 @@ idempotent migrations, and waits for health. If mutation begins but the restore
 or readiness check fails, `config/restore-state.json` records
 `RECOVERY_REQUIRED` and the command never claims success.
 
+## Signed updates and rollback
+
+Release discovery and host mutation are separate operations. Stable and
+candidate channel pointers require a valid detached Ed25519 signature; the
+selected bundle checksum is independently signed and every image remains
+digest-pinned.
+
+```sh
+sudo slabctl update check
+sudo slabctl update check --channel candidate
+sudo slabctl update apply --channel candidate
+```
+
+`update apply` requires typing `UPDATE` unless `--yes` is supplied. It persists
+maintenance mode in Slab Agents, waits for active Runs and approvals to drain,
+creates a verified pre-update backup, applies one-shot migrations, and requires
+container health plus `/ready` before recording `UPDATED`.
+
+For a successful update whose migrations permit image rollback:
+
+```sh
+sudo slabctl update rollback
+```
+
+The exact result is recorded root-only in `config/update-state.json`, including
+the previous and target versions, backup location, recovery directory, rollback
+compatibility, and terminal guidance. `RECOVERY_REQUIRED` means the operator
+must keep the stack stopped and use the referenced verified backup; `slabctl`
+never claims an unsafe rollback succeeded.
+
 ## Codex authentication
 
 The installer places a versioned management command at `/usr/local/bin/slabctl`.

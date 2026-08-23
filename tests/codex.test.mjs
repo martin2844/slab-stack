@@ -47,6 +47,18 @@ function fixture(initialStatus = "READY_NO_RUNTIME", accessMode = "private") {
     path.join(root, "installer/lib/backup.sh"),
     path.join(hostRoot, "usr/local/lib/slab-stack/backup.sh"),
   );
+  fs.copyFileSync(
+    path.join(root, "installer/lib/release-client.sh"),
+    path.join(hostRoot, "usr/local/lib/slab-stack/release-client.sh"),
+  );
+  fs.copyFileSync(
+    path.join(root, "installer/lib/update.sh"),
+    path.join(hostRoot, "usr/local/lib/slab-stack/update.sh"),
+  );
+  fs.copyFileSync(
+    path.join(root, "contracts/release-signing-public.pem"),
+    path.join(hostRoot, "usr/local/lib/slab-stack/release-signing-public.pem"),
+  );
   fs.writeFileSync(
     path.join(hostRoot, "etc/slab/install-directory"),
     `${installDirectory}\n`,

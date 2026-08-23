@@ -6,7 +6,7 @@ set -eu
 PATH=/usr/sbin:/usr/bin:/sbin:/bin
 export PATH
 
-SLAB_BOOTSTRAP_CHANNEL_BASE_URL=${SLAB_BOOTSTRAP_CHANNEL_BASE_URL:-https://raw.githubusercontent.com/martin2844/slab-stack/main/channels}
+SLAB_BOOTSTRAP_CHANNEL_BASE_URL=${SLAB_BOOTSTRAP_CHANNEL_BASE_URL:-}
 SLAB_BOOTSTRAP_RELEASE_BASE_URL=${SLAB_BOOTSTRAP_RELEASE_BASE_URL:-https://github.com/martin2844/slab-stack/releases/download}
 SLAB_BOOTSTRAP_PUBLIC_KEY_SHA256=2865983ef11b8070415642e0ebdcde17468f48392ee517a63f991f29e80c5293
 SLAB_BOOTSTRAP_ALLOW_INSECURE_TEST_SOURCE=${SLAB_BOOTSTRAP_ALLOW_INSECURE_TEST_SOURCE:-0}
@@ -171,11 +171,26 @@ done
 SLAB_BOOTSTRAP_TEMPORARY_DIRECTORY=$(mktemp -d /tmp/slab-bootstrap.XXXXXX)
 chmod 0700 "$SLAB_BOOTSTRAP_TEMPORARY_DIRECTORY"
 channel_manifest_sha256=
+public_key=$SLAB_BOOTSTRAP_TEMPORARY_DIRECTORY/release-signing-public.pem
+public_key_der=$SLAB_BOOTSTRAP_TEMPORARY_DIRECTORY/release-signing-public.der
+slab_bootstrap_write_public_key "$public_key"
+openssl pkey -pubin -in "$public_key" -outform DER -out "$public_key_der" \
+  >/dev/null 2>&1 || slab_bootstrap_fail "embedded release key is invalid"
+public_key_sha256=$(sha256sum "$public_key_der" | awk '{print $1}')
+[ "$public_key_sha256" = "$SLAB_BOOTSTRAP_PUBLIC_KEY_SHA256" ] ||
+  slab_bootstrap_fail "embedded release key fingerprint does not match"
 
 if [ -z "$requested_version" ]; then
+  channel_base_url=${SLAB_BOOTSTRAP_CHANNEL_BASE_URL:-https://github.com/martin2844/slab-stack/releases/download/channel-$requested_channel}
   channel_file=$SLAB_BOOTSTRAP_TEMPORARY_DIRECTORY/channel.json
+  channel_signature=$SLAB_BOOTSTRAP_TEMPORARY_DIRECTORY/channel.json.sig
   slab_bootstrap_download \
-    "$SLAB_BOOTSTRAP_CHANNEL_BASE_URL/$requested_channel.json" "$channel_file"
+    "$channel_base_url/$requested_channel.json" "$channel_file"
+  slab_bootstrap_download \
+    "$channel_base_url/$requested_channel.json.sig" "$channel_signature"
+  openssl pkeyutl -verify -rawin -pubin -inkey "$public_key" \
+    -in "$channel_file" -sigfile "$channel_signature" >/dev/null 2>&1 ||
+    slab_bootstrap_fail "channel signature verification failed"
   requested_version=$(slab_bootstrap_json_string "$channel_file" stackVersion)
   channel_manifest_sha256=$(
     slab_bootstrap_json_string "$channel_file" manifestSha256
@@ -191,20 +206,12 @@ release_url=$SLAB_BOOTSTRAP_RELEASE_BASE_URL/v$requested_version
 archive=$SLAB_BOOTSTRAP_TEMPORARY_DIRECTORY/$asset_name
 checksum=$archive.sha256
 signature=$checksum.sig
-public_key=$SLAB_BOOTSTRAP_TEMPORARY_DIRECTORY/release-signing-public.pem
-public_key_der=$SLAB_BOOTSTRAP_TEMPORARY_DIRECTORY/release-signing-public.der
 
 echo "Downloading signed Slab release $requested_version..."
 slab_bootstrap_download "$release_url/$asset_name" "$archive"
 slab_bootstrap_download "$release_url/$asset_name.sha256" "$checksum"
 slab_bootstrap_download "$release_url/$asset_name.sha256.sig" "$signature"
 
-slab_bootstrap_write_public_key "$public_key"
-openssl pkey -pubin -in "$public_key" -outform DER -out "$public_key_der" \
-  >/dev/null 2>&1 || slab_bootstrap_fail "embedded release key is invalid"
-public_key_sha256=$(sha256sum "$public_key_der" | awk '{print $1}')
-[ "$public_key_sha256" = "$SLAB_BOOTSTRAP_PUBLIC_KEY_SHA256" ] ||
-  slab_bootstrap_fail "embedded release key fingerprint does not match"
 openssl pkeyutl -verify -rawin -pubin -inkey "$public_key" \
   -in "$checksum" -sigfile "$signature" >/dev/null 2>&1 ||
   slab_bootstrap_fail "release signature verification failed"

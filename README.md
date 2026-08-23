@@ -27,11 +27,12 @@ Codex CLI `0.148.0` pairing. No stable channel is published yet: the candidate
 must still pass the complete Compose and clean-VPS installation matrix.
 
 The candidate also has a versioned distribution contract. A release tag builds
-a reproducible tarball, signs its SHA-256 sidecar with the offline Slab release
-key, and publishes the bundle, checksum, detached Ed25519 signature, manifest,
-and reviewed bootstrap as immutable GitHub Release assets. The bootstrap embeds
-only the public trust root and refuses unsigned, modified, path-traversing, or
-symlink-containing bundles.
+a reproducible tarball, signs its SHA-256 sidecar and channel pointer with the
+offline Slab release key, and publishes the bundle, checksum, detached Ed25519
+signatures, manifest, and reviewed bootstrap as GitHub Release assets. Version
+assets are immutable; dedicated channel releases hold signed mutable discovery
+pointers. The bootstrap embeds only the public trust root and refuses unsigned,
+modified, path-traversing, or symlink-containing metadata and bundles.
 
 The installer currently supports Ubuntu 22.04, 24.04, and 26.04 LTS plus
 Debian 12 on amd64/arm64. On a clean host it installs Docker Engine and Compose
@@ -119,3 +120,19 @@ templates/   Compose, Caddy, and host templates
 scripts/     local and CI validation
 tests/       fixtures and behavioral checks
 ```
+
+The installed manager supports read-only discovery and an explicit host update
+lifecycle:
+
+```bash
+sudo slabctl update check --channel candidate
+sudo slabctl update apply --channel candidate
+sudo slabctl update rollback
+```
+
+Apply enters persisted dispatch maintenance, drains active Runs, creates and
+verifies a mandatory backup, applies only digest-pinned images from signed
+metadata, waits for service and application readiness, and records a sanitized
+terminal state. Compatible failures restore the previous release files.
+Incompatible migration failures stop with `RECOVERY_REQUIRED` and point to the
+verified backup rather than claiming an unsafe image rollback worked.

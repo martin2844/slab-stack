@@ -15,6 +15,9 @@ lifecycle_file=$slabctl_root/usr/local/lib/slab-stack/lifecycle.sh
 domain_file=$slabctl_root/usr/local/lib/slab-stack/domain.sh
 proton_file=$slabctl_root/usr/local/lib/slab-stack/proton.sh
 backup_file=$slabctl_root/usr/local/lib/slab-stack/backup.sh
+release_client_file=$slabctl_root/usr/local/lib/slab-stack/release-client.sh
+release_public_key_file=$slabctl_root/usr/local/lib/slab-stack/release-signing-public.pem
+update_file=$slabctl_root/usr/local/lib/slab-stack/update.sh
 
 [ "$(id -u)" -eq 0 ] || [ -n "$slabctl_root" ] || {
   echo "slabctl must run as root (use sudo)." >&2
@@ -44,8 +47,16 @@ if [ ! -f "$backup_file" ] || [ -L "$backup_file" ]; then
   echo "slabctl: backup management library is missing or unsafe" >&2
   exit 1
 fi
+if [ ! -f "$release_client_file" ] || [ -L "$release_client_file" ] ||
+  [ ! -f "$release_public_key_file" ] || [ -L "$release_public_key_file" ] ||
+  [ ! -f "$update_file" ] || [ -L "$update_file" ]
+then
+  echo "slabctl: release verification metadata is missing or unsafe" >&2
+  exit 1
+fi
 for management_file in "$pointer_file" "$library_file" "$lifecycle_file" \
-  "$domain_file" "$proton_file" "$backup_file"
+  "$domain_file" "$proton_file" "$backup_file" "$release_client_file" \
+  "$release_public_key_file" "$update_file"
 do
   [ "$(stat -c '%u' "$management_file")" -eq "$SLABCTL_EXPECTED_OWNER_UID" ] || {
     echo "slabctl: management metadata has an unexpected owner" >&2
@@ -69,6 +80,10 @@ SLABCTL_INSTALL_DIRECTORY=$(sed -n '1p' "$pointer_file")
 . "$proton_file"
 # shellcheck source=installer/lib/backup.sh
 . "$backup_file"
+# shellcheck source=installer/lib/release-client.sh
+. "$release_client_file"
+# shellcheck source=installer/lib/update.sh
+. "$update_file"
 slab_acquire_management_lock "$SLABCTL_INSTALL_DIRECTORY"
 slabctl_load_installation "$SLABCTL_INSTALL_DIRECTORY"
 
@@ -88,6 +103,9 @@ Usage:
   sudo slabctl backup [--encrypt-with IDENTITY] [DESTINATION]
   sudo slabctl backup verify [--identity IDENTITY] ARCHIVE
   sudo slabctl restore [--dry-run] [--yes] [--identity IDENTITY] ARCHIVE
+  sudo slabctl update check [--channel stable|candidate]
+  sudo slabctl update apply [--channel stable|candidate] [--yes]
+  sudo slabctl update rollback [--yes]
 
 Device authorization is the default login method. API keys are accepted only
 through a hidden interactive prompt or stdin and are never written by slabctl.
@@ -204,6 +222,31 @@ case "${1:-}" in
     [ -n "$restore_archive" ] || { slabctl_usage >&2; exit 2; }
     slabctl_restore_archive "$restore_archive" "$restore_dry_run" \
       "$restore_confirmed" "$restore_identity"
+    ;;
+  update)
+    update_action=${2:-check}
+    shift 2 2>/dev/null || shift "$#"
+    update_channel=$(jq -r '.channel' "$SLABCTL_INSTALL_DIRECTORY/release-manifest.json")
+    update_confirmed=0
+    while [ "$#" -gt 0 ]; do
+      case "$1" in
+        --channel)
+          [ "$#" -ge 2 ] || { slabctl_usage >&2; exit 2; }
+          update_channel=$2
+          shift
+          ;;
+        --yes) update_confirmed=1 ;;
+        *) slabctl_usage >&2; exit 2 ;;
+      esac
+      shift
+    done
+    case "$update_channel" in stable | candidate) ;; *) slabctl_usage >&2; exit 2 ;; esac
+    case "$update_action" in
+      check) [ "$update_confirmed" -eq 0 ] || { slabctl_usage >&2; exit 2; }; slabctl_update_check "$update_channel" ;;
+      apply) slabctl_update_apply "$update_channel" "$update_confirmed" ;;
+      rollback) slabctl_update_rollback "$update_confirmed" ;;
+      *) slabctl_usage >&2; exit 2 ;;
+    esac
     ;;
   --help | -h) slabctl_usage ;;
   *) slabctl_usage >&2; exit 2 ;;

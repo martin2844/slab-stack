@@ -53,12 +53,13 @@ cleanup_release_package() {
 trap cleanup_release_package EXIT
 trap 'exit 130' HUP INT TERM
 
-mkdir -p "$staging_root/releases" "$output_directory"
+mkdir -p "$staging_root/releases" "$staging_root/contracts" "$output_directory"
 output_directory=$(CDPATH='' cd -- "$output_directory" && pwd)
 cp -R "$ROOT/installer" "$staging_root/installer"
 cp -R "$ROOT/templates" "$staging_root/templates"
 cp -R "$ROOT/bin" "$staging_root/bin"
 cp "$manifest" "$staging_root/releases/v$version.json"
+cp "$ROOT/contracts/release-signing-public.pem" "$staging_root/contracts/"
 cp "$ROOT/README.md" "$staging_root/README.md"
 
 find "$staging_root" -type d -exec chmod 0755 {} \;

@@ -34,8 +34,8 @@ jobs:
             stable) prerelease=false ;;
             *) echo "Only candidate and stable manifests can be released." >&2; exit 1 ;;
           esac
-          printf 'version=%s\nmanifest=%s\nprerelease=%s\n' \
-            "$version" "$manifest" "$prerelease" >> "$GITHUB_OUTPUT"
+          printf 'version=%s\nmanifest=%s\nchannel=%s\nprerelease=%s\n' \
+            "$version" "$manifest" "$channel" "$prerelease" >> "$GITHUB_OUTPUT"
       - name: Validate release contracts
         run: |
           shellcheck bootstrap/install.sh bin/slabctl scripts/*.sh installer/*.sh installer/lib/*.sh
@@ -66,6 +66,21 @@ jobs:
           openssl pkeyutl -verify -rawin -pubin \
             -inkey contracts/release-signing-public.pem \
             -in "$checksum" -sigfile "$checksum.sig"
+          channel="${{ steps.release.outputs.channel }}"
+          manifest="dist/v${{ steps.release.outputs.version }}.json"
+          manifest_sha256=$(sha256sum "$manifest" | awk '{print $1}')
+          jq -n \
+            --arg channel "$channel" \
+            --arg stackVersion "${{ steps.release.outputs.version }}" \
+            --arg manifestUrl "https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/v${{ steps.release.outputs.version }}.json" \
+            --arg manifestSha256 "$manifest_sha256" \
+            '{schemaVersion:1,channel:$channel,stackVersion:$stackVersion,manifestUrl:$manifestUrl,manifestSha256:$manifestSha256}' \
+            > "dist/$channel.json"
+          openssl pkeyutl -sign -rawin -inkey "$signing_key" \
+            -in "dist/$channel.json" -out "dist/$channel.json.sig"
+          openssl pkeyutl -verify -rawin -pubin \
+            -inkey contracts/release-signing-public.pem \
+            -in "dist/$channel.json" -sigfile "dist/$channel.json.sig"
           cp bootstrap/install.sh dist/install.sh
       - name: Publish immutable GitHub Release assets
         env:
@@ -82,3 +97,12 @@ jobs:
             --title "Slab Stack ${{ steps.release.outputs.version }}" \
             --notes "Signed, versioned Slab self-hosted installer bundle." \
             "${release_flags[@]}"
+          channel="${{ steps.release.outputs.channel }}"
+          channel_tag="channel-$channel"
+          if ! gh release view "$channel_tag" >/dev/null 2>&1; then
+            gh release create "$channel_tag" --prerelease \
+              --title "Slab $channel channel" \
+              --notes "Machine-readable signed pointer for the Slab $channel channel."
+          fi
+          gh release upload "$channel_tag" \
+            "dist/$channel.json" "dist/$channel.json.sig" --clobber

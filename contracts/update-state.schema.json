@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://slab.ar/schemas/update-state-v1.json",
+  "title": "Slab update attempt state",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "status",
+    "fromVersion",
+    "toVersion",
+    "channel",
+    "message",
+    "backupPath",
+    "recoveryDirectory",
+    "rollbackCompatible",
+    "updatedAt"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "status": {
+      "enum": [
+        "DRAINING",
+        "BACKING_UP",
+        "APPLYING",
+        "UPDATED",
+        "FAILED",
+        "ROLLED_BACK",
+        "ROLLBACK_FAILED",
+        "RECOVERY_REQUIRED"
+      ]
+    },
+    "fromVersion": { "type": "string" },
+    "toVersion": { "type": "string" },
+    "channel": { "enum": ["stable", "candidate"] },
+    "message": { "type": "string", "minLength": 1, "maxLength": 500 },
+    "backupPath": { "type": ["string", "null"] },
+    "recoveryDirectory": { "type": ["string", "null"] },
+    "rollbackCompatible": { "type": "boolean" },
+    "updatedAt": { "type": "string", "format": "date-time" }
+  }
+}
