@@ -1,6 +1,6 @@
 #!/bin/sh
 
-SLAB_EMAIL_METADATA_REPAIR_TARGET_VERSION=0.1.2-candidate.21
+SLAB_EMAIL_METADATA_REPAIR_TARGET_VERSION=0.1.2-candidate.22
 SLAB_EMAIL_METADATA_REPAIR_IMAGE_REF=ghcr.io/martin2844/slab-email:candidate-58816f1d708c97953ed5c4f87b81170c6a9ba1e0
 SLAB_EMAIL_METADATA_REPAIR_IMAGE_DIGEST=sha256:95e165cf4be802ce8bf5266d4573d7328f721aee77bca300c20d37cd0cb82d6f
 
@@ -96,12 +96,13 @@ slab_repair_known_email_migration_metadata() {
   target_email_ref=$(jq -er '.images.email.ref' "$target_manifest") || return 1
   target_email_digest=$(jq -er '.images.email.digest' "$target_manifest") || return 1
   target_email_migrations=$(jq -cer '.dataCompatibility.volumes.email_data.migrations | map(tostring)' "$target_manifest") || return 1
-  [ "$target_email_ref" = "$SLAB_EMAIL_METADATA_REPAIR_IMAGE_REF" ] &&
-    [ "$target_email_digest" = "$SLAB_EMAIL_METADATA_REPAIR_IMAGE_DIGEST" ] &&
-    [ "$target_email_migrations" = '["1","2"]' ] || {
-      slab_metadata_repair_error "signed target does not contain the expected Email correction"
-      return 1
-    }
+  if [ "$target_email_ref" != "$SLAB_EMAIL_METADATA_REPAIR_IMAGE_REF" ] ||
+    [ "$target_email_digest" != "$SLAB_EMAIL_METADATA_REPAIR_IMAGE_DIGEST" ] ||
+    [ "$target_email_migrations" != '["1","2"]' ]
+  then
+    slab_metadata_repair_error "signed target does not contain the expected Email correction"
+    return 1
+  fi
 
   SLABCTL_EXPECTED_OWNER_UID=${SLAB_MANAGEMENT_OWNER_UID:-0}
   slabctl_load_installation "$install_directory" || return 1
@@ -120,11 +121,12 @@ slab_repair_known_email_migration_metadata() {
   installed_email_digest=$(jq -er '.images.email.digest' "$installed_manifest") || return 1
   installed_email_migrations=$(jq -cer '.dataCompatibility.volumes.email_data.migrations | map(tostring)' "$installed_manifest") || return 1
 
-  [ "$installed_email_ref" = "$SLAB_EMAIL_METADATA_REPAIR_IMAGE_REF" ] &&
-    [ "$installed_email_digest" = "$SLAB_EMAIL_METADATA_REPAIR_IMAGE_DIGEST" ] || {
-      slab_metadata_repair_error "installed Email image is outside the known affected set"
-      return 1
-    }
+  if [ "$installed_email_ref" != "$SLAB_EMAIL_METADATA_REPAIR_IMAGE_REF" ] ||
+    [ "$installed_email_digest" != "$SLAB_EMAIL_METADATA_REPAIR_IMAGE_DIGEST" ]
+  then
+    slab_metadata_repair_error "installed Email image is outside the known affected set"
+    return 1
+  fi
 
   if [ "$installed_email_migrations" = '["1","2"]' ]; then
     echo "Email migration metadata is already correct. No repair was needed."
@@ -158,11 +160,12 @@ slab_repair_known_email_migration_metadata() {
   backup_temporary=$install_directory/.release-manifest.email-repair-backup.$$
   temporary_manifest=$install_directory/.release-manifest.email-repair.$$
   if [ -e "$backup_manifest" ] || [ -L "$backup_manifest" ]; then
-    [ -f "$backup_manifest" ] && [ ! -L "$backup_manifest" ] &&
-      cmp -s "$backup_manifest" "$installed_manifest" || {
-        slab_metadata_repair_error "repair backup already exists with unexpected content: $backup_manifest"
-        return 1
-      }
+    if [ ! -f "$backup_manifest" ] || [ -L "$backup_manifest" ] ||
+      ! cmp -s "$backup_manifest" "$installed_manifest"
+    then
+      slab_metadata_repair_error "repair backup already exists with unexpected content: $backup_manifest"
+      return 1
+    fi
   else
     (
       trap 'rm -f "$backup_temporary"' EXIT

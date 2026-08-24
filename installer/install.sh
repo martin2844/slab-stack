@@ -2,7 +2,7 @@
 set -eu
 
 BUNDLE_ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
-DEFAULT_MANIFEST=$BUNDLE_ROOT/releases/v0.1.2-candidate.21.json
+DEFAULT_MANIFEST=$BUNDLE_ROOT/releases/v0.1.2-candidate.22.json
 
 # shellcheck source=installer/lib/preflight.sh
 . "$BUNDLE_ROOT/installer/lib/preflight.sh"
@@ -139,10 +139,10 @@ if [ "$SLAB_REPAIR_KNOWN_METADATA" -eq 1 ]; then
     echo "--repair-known-metadata cannot be combined with --dry-run." >&2
     exit 2
   }
-  [ "$SLAB_NON_INTERACTIVE" -eq 0 ] && [ -z "$SLAB_CONFIG_FILE" ] || {
+  if [ "$SLAB_NON_INTERACTIVE" -ne 0 ] || [ -n "$SLAB_CONFIG_FILE" ]; then
     echo "--repair-known-metadata does not accept installer configuration options." >&2
     exit 2
-  }
+  fi
   slab_repair_known_email_migration_metadata "$SLAB_MANIFEST"
   exit 0
 fi

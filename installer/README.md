@@ -214,7 +214,7 @@ candidate bundle, then run the normal update:
 
 ```sh
 curl -fsSL https://github.com/martin2844/slab-stack/releases/latest/download/install.sh \
-  | sudo sh -s -- --version 0.1.2-candidate.21 -- --repair-known-metadata
+  | sudo sh -s -- --version 0.1.2-candidate.22 -- --repair-known-metadata
 sudo slabctl update apply --channel candidate --yes
 ```
 
