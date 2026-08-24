@@ -36,6 +36,12 @@ invariant(
   typeof manifest.codexVersion === "string" && manifest.codexVersion.length > 0,
   "codexVersion is required",
 );
+if (manifest.geminiCliVersion !== undefined) {
+  invariant(
+    semver.test(manifest.geminiCliVersion),
+    "geminiCliVersion must be semver when provided",
+  );
+}
 
 for (const service of serviceNames) {
   const image = manifest.images?.[service];

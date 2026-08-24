@@ -2,7 +2,7 @@
 set -eu
 
 BUNDLE_ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
-DEFAULT_MANIFEST=$BUNDLE_ROOT/releases/v0.1.0-candidate.19.json
+DEFAULT_MANIFEST=$BUNDLE_ROOT/releases/v0.1.2-candidate.20.json
 
 # shellcheck source=installer/lib/preflight.sh
 . "$BUNDLE_ROOT/installer/lib/preflight.sh"
@@ -294,6 +294,7 @@ slab_bootstrap_admin_if_needed "$SLAB_ADMIN_PASSWORD"
 SLAB_ADMIN_PASSWORD=
 
 codex_authenticated=0
+runtime_authenticated=0
 domain_tls_ready=0
 # Consumed by the sourced Codex management helper.
 # shellcheck disable=SC2034
@@ -302,11 +303,14 @@ slabctl_load_installation "$SLAB_INSTALL_DIRECTORY"
 if slabctl_codex_status >/dev/null 2>&1; then
   codex_authenticated=1
 fi
+if slabctl_any_runner_runtime_available; then
+  runtime_authenticated=1
+fi
 if [ "$SLAB_ACCESS_MODE" = domain ] && slabctl_wait_for_domain_tls; then
   domain_tls_ready=1
 fi
 completion_state=READY_NO_RUNTIME
-[ "$codex_authenticated" -eq 1 ] && completion_state=READY
+[ "$runtime_authenticated" -eq 1 ] && completion_state=READY
 if [ "$SLAB_ACCESS_MODE" = domain ] && [ "$domain_tls_ready" -eq 0 ]; then
   completion_state=TLS_PENDING
 fi
@@ -364,10 +368,27 @@ if [ "$SLAB_NON_INTERACTIVE" -eq 0 ] && [ "$codex_authenticated" -eq 0 ]; then
     *)
       if slabctl_codex_login_device; then
         codex_authenticated=1
+        runtime_authenticated=1
         completion_state=$(jq -r '.status' \
           "$SLAB_INSTALL_DIRECTORY/config/install-state.json")
       else
         echo "Codex authentication was not completed. The healthy installation remains available." >&2
+      fi
+      ;;
+  esac
+fi
+if [ "$SLAB_NON_INTERACTIVE" -eq 0 ] && ! slabctl_gemini_status >/dev/null 2>&1; then
+  printf 'Authenticate the optional Gemini runtime now? [y/N]: ' > /dev/tty
+  IFS= read -r authenticate_gemini < /dev/tty
+  case "$authenticate_gemini" in
+    y | Y | yes | YES)
+      if slabctl_gemini_login; then
+        runtime_authenticated=1
+        completion_state=$(jq -r '.status' \
+          "$SLAB_INSTALL_DIRECTORY/config/install-state.json")
+      else
+        echo "Gemini authentication was not completed. The healthy installation remains available." >&2
+        echo "Retry later with: sudo slabctl gemini login" >&2
       fi
       ;;
   esac

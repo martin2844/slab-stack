@@ -122,6 +122,9 @@ case "$*" in
     ;;
   *"login --device-auth") printf 'Open the device authorization URL\\n' ;;
   *"login status") printf 'Logged in\\n' ;;
+  *"slab-runner /usr/local/bin/gemini") printf 'Google authorization complete.\\n' ;;
+  *"SLAB_RUNTIME_ID=codex"*) [ "\${SLAB_TEST_CODEX_AVAILABLE:-1}" -eq 1 ] ;;
+  *"SLAB_RUNTIME_ID=gemini"*) [ "\${SLAB_TEST_GEMINI_AVAILABLE:-0}" -eq 1 ] ;;
   *"node -e"*) exit 0 ;;
   *" logout") printf 'Logged out\\n' ;;
   *" restart slab-runner") exit 0 ;;
@@ -201,6 +204,67 @@ test("Codex status inspects the Runner-owned persistent Codex home", () => {
       calls,
       /exec -T -e CODEX_HOME=\/var\/lib\/slab-runner\/codex slab-runner \/usr\/local\/bin\/codex login status/,
     );
+  } finally {
+    fs.rmSync(current.directory, { recursive: true, force: true });
+  }
+});
+
+test("Gemini status inspects isolated Runner-owned OAuth state", () => {
+  const current = fixture();
+  try {
+    const result = run(current, ["gemini", "status"], undefined, {
+      SLAB_TEST_GEMINI_AVAILABLE: "1",
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /authenticated and available/);
+    const calls = fs.readFileSync(current.calls, "utf8");
+    assert.match(calls, /GEMINI_CLI_HOME=\/var\/lib\/slab-runner\/gemini/);
+    assert.doesNotMatch(result.stdout + result.stderr, /oauth_creds/);
+  } finally {
+    fs.rmSync(current.directory, { recursive: true, force: true });
+  }
+});
+
+test("Gemini login uses no-browser OAuth and restarts Runner", () => {
+  const current = fixture();
+  try {
+    const result = run(current, ["gemini", "login"], undefined, {
+      SLAB_TEST_GEMINI_AVAILABLE: "1",
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /Google's official account authorization flow/);
+    assert.match(result.stdout, /Settings > Runtime/);
+    const calls = fs.readFileSync(current.calls, "utf8");
+    assert.match(calls, /NO_BROWSER=true/);
+    assert.match(calls, /slab-runner \/usr\/local\/bin\/gemini/);
+    assert.match(calls, /restart slab-runner/);
+    const state = JSON.parse(
+      fs.readFileSync(
+        path.join(current.installDirectory, "config/install-state.json"),
+        "utf8",
+      ),
+    );
+    assert.equal(state.status, "READY");
+  } finally {
+    fs.rmSync(current.directory, { recursive: true, force: true });
+  }
+});
+
+test("Gemini logout preserves READY while Codex remains available", () => {
+  const current = fixture("READY");
+  try {
+    const result = run(current, ["gemini", "logout"]);
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /Existing product data is unchanged/);
+    const calls = fs.readFileSync(current.calls, "utf8");
+    assert.match(calls, /restart slab-runner/);
+    const state = JSON.parse(
+      fs.readFileSync(
+        path.join(current.installDirectory, "config/install-state.json"),
+        "utf8",
+      ),
+    );
+    assert.equal(state.status, "READY");
   } finally {
     fs.rmSync(current.directory, { recursive: true, force: true });
   }
@@ -321,7 +385,9 @@ test("API-key login consumes stdin without exposing the key in output or Docker 
 test("logout restarts Runner and demotes READY to READY_NO_RUNTIME", () => {
   const current = fixture("READY");
   try {
-    const result = run(current, ["codex", "logout"]);
+    const result = run(current, ["codex", "logout"], undefined, {
+      SLAB_TEST_CODEX_AVAILABLE: "0",
+    });
     assert.equal(result.status, 0, result.stderr);
     const calls = fs.readFileSync(current.calls, "utf8");
     assert.match(calls, / logout/);

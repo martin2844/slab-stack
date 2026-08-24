@@ -17,7 +17,7 @@ const imageEnvironmentRenderer = path.join(
 const candidatePath = path.join(
   root,
   "releases",
-  "v0.1.0-candidate.19.json",
+  "v0.1.2-candidate.20.json",
 );
 const example = JSON.parse(
   fs.readFileSync(path.join(root, "releases", "example-manifest.json"), "utf8"),
@@ -50,6 +50,16 @@ test("accepts the complete development release fixture", () => {
 test("accepts the immutable candidate release manifest", () => {
   const result = validate(structuredClone(candidate));
   assert.equal(result.status, 0, result.stderr);
+  assert.equal(candidate.codexVersion, "0.148.0");
+  assert.equal(candidate.geminiCliVersion, "0.56.0");
+});
+
+test("rejects a malformed optional Gemini CLI version", () => {
+  const manifest = structuredClone(candidate);
+  manifest.geminiCliVersion = "latest";
+  const result = validate(manifest);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /geminiCliVersion must be semver/);
 });
 
 test("accepts a release-engineering drill manifest", () => {
@@ -142,17 +152,18 @@ test("uses the current candidate when the renderer receives no manifest", () => 
 
 test("keeps every current-candidate pointer on the same manifest", () => {
   const candidateName = path.basename(candidatePath);
-  for (const filename of [
-    "README.md",
-    "installer/install.sh",
-    "scripts/check.sh",
-    "scripts/full-stack-smoke.sh",
-    "scripts/render-image-env.mjs",
+  for (const [filename, expectedPointer] of [
+    [".github/workflows/host-matrix.yml", candidate.stackVersion],
+    ["README.md", candidateName],
+    ["installer/install.sh", candidateName],
+    ["scripts/check.sh", candidateName],
+    ["scripts/full-stack-smoke.sh", candidateName],
+    ["scripts/render-image-env.mjs", candidateName],
   ]) {
     assert.match(
       fs.readFileSync(path.join(root, filename), "utf8"),
-      new RegExp(candidateName.replaceAll(".", "\\.")),
-      `${filename} does not point to ${candidateName}`,
+      new RegExp(expectedPointer.replaceAll(".", "\\.")),
+      `${filename} does not point to ${expectedPointer}`,
     );
   }
 });

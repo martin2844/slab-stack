@@ -697,6 +697,32 @@ test("SemVer precedence treats a stable release as newer than its prerelease", (
   assert.equal(result.status, 0, result.stderr);
 });
 
+test("current candidate upgrades stable without declaring unsafe image rollback", () => {
+  const stable = JSON.parse(
+    fs.readFileSync(path.join(root, "releases/v0.1.1.json"), "utf8"),
+  );
+  const candidate = JSON.parse(
+    fs.readFileSync(
+      path.join(root, "releases/v0.1.2-candidate.20.json"),
+      "utf8",
+    ),
+  );
+  const result = command("sh", [
+    "-c",
+    [
+      '. "$1"',
+      'slabctl_update_is_newer "$2" "$3"',
+      '! slabctl_update_version_at_least "$2" "$4"',
+    ].join("; "),
+    "candidate-ordering-test",
+    path.join(root, "installer/lib/update.sh"),
+    stable.stackVersion,
+    candidate.stackVersion,
+    candidate.migrationCompatibility.minimumRollbackStack,
+  ]);
+  assert.equal(result.status, 0, result.stderr);
+});
+
 test("recovery-required update failures stop the mutated stack", (t) => {
   const fixture = updateFixture(t, {
     failHealthAlways: true,

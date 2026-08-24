@@ -120,7 +120,7 @@ slabctl_volume_names() {
 
 slabctl_volume_scope() {
   case "$1" in
-    caddy_data | caddy_config) printf '%s\n' infrastructure ;;
+    caddy_data | caddy_config | runner_gemini) printf '%s\n' infrastructure ;;
     *) printf '%s\n' product ;;
   esac
 }
@@ -263,6 +263,62 @@ slabctl_external_auth_metadata() {
     '
 }
 
+slabctl_gemini_external_auth_metadata() {
+  docker_volume=$1
+  image=$2
+  docker run --rm --read-only --user 0 --entrypoint node \
+    --mount "type=volume,src=$docker_volume,dst=/gemini,readonly" \
+    "$image" -e '
+      const fs = require("node:fs");
+      let authenticated = false;
+      try {
+        const credentials = fs.statSync("/gemini/.gemini/oauth_creds.json");
+        const settings = JSON.parse(
+          fs.readFileSync("/gemini/.gemini/settings.json", "utf8"),
+        );
+        const selectedType =
+          settings?.security?.auth?.selectedType ?? settings?.selectedAuthType;
+        authenticated = credentials.isFile() && credentials.size > 0 &&
+          selectedType === "oauth-personal";
+      } catch {}
+      process.stdout.write(JSON.stringify(authenticated ? [{
+        provider: "gemini",
+        configuredAccounts: 1,
+        portability: "reauthentication_required",
+      }] : []));
+    '
+}
+
+slabctl_append_external_auth_metadata() {
+  target=$1
+  entries=$2
+  temporary=$target.merge.$$
+  jq -c --argjson entries "$entries" '. + $entries' "$target" > "$temporary" &&
+    mv "$temporary" "$target"
+}
+
+slabctl_restore_clear_nonportable_runtime_threads() {
+  image=$1
+  docker_volume=$(slabctl_resolve_volume agents_data) || return 1
+  docker run --rm --user 0 --entrypoint node \
+    --mount "type=volume,src=$docker_volume,dst=/data" \
+    "$image" -e '
+      const Database = require("better-sqlite3");
+      const database = new Database("/data/slab-workspace.db", {
+        fileMustExist: true,
+      });
+      const columns = new Set(
+        database.prepare("PRAGMA table_info(threads)").all().map((row) => row.name),
+      );
+      if (columns.has("runtime") && columns.has("runtime_thread_id")) {
+        database.prepare(
+          "UPDATE threads SET runtime_thread_id = NULL WHERE runtime = ? AND runtime_thread_id IS NOT NULL",
+        ).run("gemini");
+      }
+      database.close();
+    '
+}
+
 slabctl_schema_matches_release() {
   schema=$1
   [ "$(printf '%s\n' "$schema" | jq -r '.kind')" != sqlite ] ||
@@ -401,6 +457,18 @@ slabctl_backup_create() (
   : > "$volumes_jsonl"
   printf '%s\n' '[]' > "$external_auth_json"
 
+  if slabctl_volume_names | grep -Fx runner_gemini >/dev/null; then
+    gemini_volume=$(slabctl_resolve_volume runner_gemini) || exit 1
+    gemini_external_auth=$(
+      slabctl_gemini_external_auth_metadata "$gemini_volume" "$runtime_image"
+    ) || {
+      slabctl_error "could not inspect Gemini authentication portability"
+      exit 1
+    }
+    slabctl_append_external_auth_metadata "$external_auth_json" \
+      "$gemini_external_auth" || exit 1
+  fi
+
   for archive_path in $(
     cd "$stage_directory" &&
       find metadata secrets -type f -print | LC_ALL=C sort
@@ -421,10 +489,14 @@ slabctl_backup_create() (
       exit 1
     fi
     if [ "$logical_name" = email_data ]; then
-      slabctl_external_auth_metadata "$docker_volume" > "$external_auth_json" || {
+      email_external_auth=$(
+        slabctl_external_auth_metadata "$docker_volume"
+      ) || {
         slabctl_error "could not inspect external authentication portability"
         exit 1
       }
+      slabctl_append_external_auth_metadata "$external_auth_json" \
+        "$email_external_auth" || exit 1
     fi
     slabctl_archive_volume "$runtime_image" "$docker_volume" \
       "$stage_directory/volumes" "$logical_name.tar.gz" || exit 1
@@ -531,8 +603,9 @@ slabctl_backup_validate_manifest() {
       else true end)] | all) and
     (if .schemaVersion == 2 then
       (.externalAuth | type == "array") and
+      ([.externalAuth[].provider] | length == (unique | length)) and
       ([.externalAuth[] |
-        .provider == "proton_bridge" and
+        (.provider | IN("proton_bridge", "gemini")) and
         (.configuredAccounts | type == "number" and . >= 1) and
         .portability == "reauthentication_required"] | all)
     else true end)
@@ -804,6 +877,12 @@ EOF
         break
       fi
     done
+  fi
+
+  if [ "$restore_failed" -eq 0 ] &&
+    ! slabctl_restore_clear_nonportable_runtime_threads "$runtime_image"
+  then
+    restore_failed=1
   fi
 
   if [ "$restore_failed" -ne 0 ]; then

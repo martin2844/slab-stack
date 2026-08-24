@@ -167,6 +167,7 @@ services:
     networks: [control]
     volumes:
       - runner_codex:/var/lib/slab-runner/codex
+      - runner_gemini:/var/lib/slab-runner/gemini
     secrets:
       - runner_token
     environment:
@@ -174,7 +175,9 @@ services:
       RUNNER_PORT: "6990"
       RUNNER_TOKEN_FILE: /run/secrets/runner_token
       RUNNER_CODEX_HOME: /var/lib/slab-runner/codex
+      RUNNER_GEMINI_HOME: /var/lib/slab-runner/gemini
       CODEX_BIN: /usr/local/bin/codex
+      GEMINI_BIN: /usr/local/bin/gemini
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:6990/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 10s
@@ -235,6 +238,7 @@ volumes:
   docs_data:
   email_data:
   runner_codex:
+  runner_gemini:
 
 secrets:
   work_api_key:

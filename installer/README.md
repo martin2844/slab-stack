@@ -265,6 +265,38 @@ Authentication is written only into the Runner's persistent Codex volume.
 After login/logout, `slabctl` restarts Runner so `codex app-server` reloads the
 credential state. A failed login does not roll back the healthy stack.
 
+## Gemini authentication
+
+Gemini CLI is an optional experimental runtime that uses Google's official
+account authorization and does not require a usage-key in Slab Agents. On a
+headless host, run:
+
+```sh
+sudo slabctl gemini login
+sudo slabctl gemini status
+sudo slabctl gemini logout
+```
+
+`slabctl` starts Gemini with `NO_BROWSER=true`. Open the URL it displays on
+your computer, complete Google's authorization, return to the server, and type
+`/quit` once the Gemini prompt appears. OAuth state is stored only in the
+Runner's dedicated `runner_gemini` volume; it is never copied into Compose
+environment, the control-plane database, or model context. Login/logout
+restarts Runner so runtime health changes deterministically. After a successful
+login, enable Gemini from Settings → Runtime and assign it to an Agent.
+
+The OAuth volume survives restarts and updates on the same host. It is excluded
+from portable Slab backups, so authenticate Gemini again after restoring onto
+another host. Restore also clears saved Gemini runtime session IDs; the next
+chat turn starts a fresh Gemini session and rehydrates the durable product
+conversation.
+
+Gemini reports aggregate Run usage. It does not expose a native hard token or
+cost limit through this CLI path, so Runs with hard token/cost budgets fail
+closed before execution. Headless Gemini also cannot round-trip Slab prompt
+approvals: prompt-gated tools are omitted, while explicitly approved tools are
+available for the Run.
+
 ## Proton Bridge
 
 On amd64 and arm64, `slab-email` includes Proton's headless Bridge backend built

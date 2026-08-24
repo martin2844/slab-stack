@@ -29,6 +29,13 @@ hosts. Ubuntu 26.04 arm64 is also outside the current stable promise.
 - Private mode binds the panel to `127.0.0.1:3009`; use an SSH tunnel.
 - Domain mode uses Caddy for reverse proxying and automatic TLS.
 - Codex CLI `0.148.0` is the stable runtime pairing for Slab `0.1.0`.
+- Gemini CLI `0.56.0` is an experimental account-authenticated runtime. Its
+  OAuth state is isolated in a dedicated Runner volume and hard-budget Runs
+  fail closed because the CLI has no native token/cost ceiling. The volume is
+  host-local and Gemini must be authenticated again after a portable restore.
+  Restore clears Gemini runtime session IDs so the next chat turn starts fresh
+  and rehydrates the durable product conversation instead of resuming missing
+  provider-local history.
 - Proton Bridge authentication is host-bound and must be repeated after moving
   a backup to another host.
 

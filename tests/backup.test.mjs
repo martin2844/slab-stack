@@ -160,6 +160,48 @@ function writeTargetRelease(installation, migrations) {
   );
 }
 
+test("portable backups exclude host-local Gemini OAuth state", () => {
+  const result = backupShell(`
+    printf '%s\\n' "$(slabctl_volume_scope runner_gemini)"
+    printf '%s\\n' "$(slabctl_volume_scope runner_codex)"
+  `);
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(result.stdout.trim().split("\n"), [
+    "infrastructure",
+    "product",
+  ]);
+});
+
+test("authenticated Gemini state is recorded as requiring portable reauthentication", () => {
+  const result = backupShell(`
+    docker() {
+      printf '%s' '[{"provider":"gemini","configuredAccounts":1,"portability":"reauthentication_required"}]'
+    }
+    slabctl_gemini_external_auth_metadata slab_runner_gemini fixture-runner
+  `);
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(JSON.parse(result.stdout), [
+    {
+      provider: "gemini",
+      configuredAccounts: 1,
+      portability: "reauthentication_required",
+    },
+  ]);
+});
+
+test("backup manifest contract accepts every emitted external authentication provider", () => {
+  const schema = JSON.parse(
+    fs.readFileSync(
+      path.join(root, "contracts", "backup-manifest.schema.json"),
+      "utf8",
+    ),
+  );
+  assert.deepEqual(
+    schema.properties.externalAuth.items.properties.provider.enum,
+    ["gemini", "proton_bridge"],
+  );
+});
+
 test("resolves legacy Compose volumes that predate project labels", () => {
   const result = backupShell(`
     SLABCTL_PROJECT_NAME=slab
@@ -550,10 +592,47 @@ test("successful restore clears maintenance restored from a pre-update backup", 
   assert.match(backupState.lastSuccessfulBackup.sha256, /^[a-f0-9]{64}$/);
 });
 
+test("restore clears non-portable Gemini sessions before services start", (t) => {
+  const { archive, directory } = backupFixture(t);
+  const installation = path.join(directory, "installation");
+  const operations = path.join(directory, "operations.txt");
+  fs.mkdirSync(path.join(installation, "config"), { recursive: true });
+  fs.mkdirSync(path.join(installation, "secrets"), { recursive: true });
+  fs.writeFileSync(path.join(installation, "VERSION"), "0.1.0-candidate.10\n");
+  const result = backupShell(
+    [
+      'slabctl_error() { echo "slabctl: $*" >&2; return 1; }',
+      "slabctl_volume_names() { echo agents_data; }",
+      "slabctl_resolve_volume() { echo slab_agents_data; }",
+      "slabctl_backup_runtime_image() { echo fixture-image; }",
+      'slabctl_compose() { [ "$1" = ps ] && return 0; }',
+      'OPERATIONS="$4"',
+      'docker() { case "$*" in *"UPDATE threads SET runtime_thread_id = NULL"*) echo clear-gemini-session >> "$OPERATIONS" ;; esac; [ "$1" = run ]; }',
+      'slabctl_stack_start() { echo start >> "$OPERATIONS"; }',
+      "slabctl_wait_for_healthy_stack() { :; }",
+      "slabctl_update_exit_maintenance() { :; }",
+      'SLABCTL_INSTALL_DIRECTORY="$2"',
+      "SLABCTL_PROJECT_NAME=slab",
+      'slabctl_restore_archive "$3" 0 1',
+    ].join("; "),
+    [installation, archive, operations],
+  );
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(fs.readFileSync(operations, "utf8").trim().split("\n"), [
+    "clear-gemini-session",
+    "start",
+  ]);
+});
+
 test("v2 restore persists external providers that require host reauthentication", (t) => {
   const externalAuth = [
     {
       provider: "proton_bridge",
+      configuredAccounts: 1,
+      portability: "reauthentication_required",
+    },
+    {
+      provider: "gemini",
       configuredAccounts: 1,
       portability: "reauthentication_required",
     },

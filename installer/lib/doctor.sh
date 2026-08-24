@@ -136,6 +136,12 @@ slabctl_doctor_collect() {
     slabctl_doctor_append "$output" runtime.codex warn \
       "not authenticated or unavailable"
   fi
+  if slabctl_runner_runtime_available gemini >/dev/null 2>&1; then
+    slabctl_doctor_append "$output" runtime.gemini pass "available"
+  else
+    slabctl_doctor_append "$output" runtime.gemini warn \
+      "not authenticated or unavailable"
+  fi
 
   backup_state=$SLABCTL_INSTALL_DIRECTORY/config/backup-state.json
   if [ -f "$backup_state" ] && [ ! -L "$backup_state" ]; then

@@ -106,6 +106,22 @@ slabctl_codex_command() {
   fi
 }
 
+slabctl_gemini_command() {
+  allocate_tty=$1
+  shift
+  if [ "$allocate_tty" -eq 1 ]; then
+    slabctl_compose exec \
+      -e GEMINI_CLI_HOME=/var/lib/slab-runner/gemini \
+      -e NO_BROWSER=true \
+      slab-runner /usr/local/bin/gemini "$@"
+  else
+    slabctl_compose exec -T \
+      -e GEMINI_CLI_HOME=/var/lib/slab-runner/gemini \
+      -e NO_BROWSER=true \
+      slab-runner /usr/local/bin/gemini "$@"
+  fi
+}
+
 slabctl_wait_for_runner() {
   attempts=${SLABCTL_RUNNER_HEALTH_ATTEMPTS:-30}
   delay=${SLABCTL_RUNNER_HEALTH_DELAY_SECONDS:-2}
@@ -158,19 +174,43 @@ slabctl_restart_runner() {
   slabctl_wait_for_runner
 }
 
-slabctl_runner_codex_available() {
-  slabctl_compose exec -T slab-runner node -e '
+slabctl_runner_runtime_available() {
+  runtime_id=$1
+  case "$runtime_id" in
+    codex | gemini) ;;
+    *) slabctl_error "unsupported Runner-owned runtime: $runtime_id"; return 1 ;;
+  esac
+  slabctl_compose exec -T -e SLAB_RUNTIME_ID="$runtime_id" \
+    slab-runner node -e '
     const fs = require("node:fs");
+    const runtimeId = process.env.SLAB_RUNTIME_ID;
     const token = fs.readFileSync("/run/secrets/runner_token", "utf8").trim();
     fetch("http://127.0.0.1:6990/runtimes", {
       headers: { "X-Runner-Token": token },
     }).then(async (response) => {
       if (!response.ok) process.exit(1);
       const payload = await response.json();
-      const codex = payload.data?.find((runtime) => runtime.id === "codex");
-      process.exit(codex?.available === true ? 0 : 1);
+      const runtime = payload.data?.find((entry) => entry.id === runtimeId);
+      process.exit(runtime?.available === true ? 0 : 1);
     }).catch(() => process.exit(1));
   '
+}
+
+slabctl_runner_codex_available() {
+  slabctl_runner_runtime_available codex
+}
+
+slabctl_any_runner_runtime_available() {
+  slabctl_runner_runtime_available codex >/dev/null 2>&1 ||
+    slabctl_runner_runtime_available gemini >/dev/null 2>&1
+}
+
+slabctl_refresh_runtime_state() {
+  if slabctl_any_runner_runtime_available; then
+    slabctl_update_runtime_state authenticated
+  else
+    slabctl_update_runtime_state signed_out
+  fi
 }
 
 slabctl_codex_login_device() {
@@ -181,7 +221,7 @@ slabctl_codex_login_device() {
     slabctl_error "Runner did not confirm that Codex is available"
     return 1
   }
-  slabctl_update_runtime_state authenticated
+  slabctl_refresh_runtime_state
   echo "Codex authentication is active. Slab Agents will use it for new runs."
 }
 
@@ -218,7 +258,7 @@ slabctl_codex_login_api_key() {
     slabctl_error "Runner did not confirm that Codex is available"
     return 1
   }
-  slabctl_update_runtime_state authenticated
+  slabctl_refresh_runtime_state
   echo "Codex authentication is active. Slab Agents will use it for new runs."
 }
 
@@ -233,6 +273,73 @@ slabctl_codex_status() {
 slabctl_codex_logout() {
   slabctl_codex_command 0 logout || return 1
   slabctl_restart_runner || return 1
-  slabctl_update_runtime_state signed_out
+  slabctl_refresh_runtime_state
   echo "Codex is signed out. Existing product data is unchanged."
+}
+
+slabctl_gemini_credentials_present() {
+  slabctl_compose exec -T \
+    -e GEMINI_CLI_HOME=/var/lib/slab-runner/gemini \
+    slab-runner node -e '
+      const fs = require("node:fs");
+      const path = require("node:path");
+      const home = process.env.GEMINI_CLI_HOME;
+      try {
+        const credential = fs.statSync(path.join(home, ".gemini", "oauth_creds.json"));
+        const settings = JSON.parse(fs.readFileSync(path.join(home, ".gemini", "settings.json"), "utf8"));
+        const selected = settings?.security?.auth?.selectedType ?? settings?.selectedAuthType;
+        process.exit(credential.isFile() && credential.size > 0 && selected === "oauth-personal" ? 0 : 1);
+      } catch {
+        process.exit(1);
+      }
+    '
+}
+
+slabctl_gemini_login() {
+  cat <<'EOF'
+Gemini CLI will show Google's official account authorization flow.
+NO_BROWSER mode is enabled for this server. Open the displayed URL on your
+computer, complete authorization, then return here. When Gemini opens its
+prompt after login, type /quit to return to slabctl.
+EOF
+  slabctl_gemini_command 1 || return 1
+  slabctl_gemini_credentials_present || {
+    slabctl_error "Gemini CLI did not leave a usable Google OAuth credential"
+    return 1
+  }
+  slabctl_restart_runner || return 1
+  slabctl_runner_runtime_available gemini || {
+    slabctl_error "Runner did not confirm that Gemini CLI is available"
+    return 1
+  }
+  slabctl_refresh_runtime_state
+  echo "Gemini authentication is active. Enable Gemini in Settings > Runtime."
+}
+
+slabctl_gemini_status() {
+  slabctl_gemini_credentials_present || {
+    slabctl_error "Gemini CLI is not authenticated"
+    return 1
+  }
+  slabctl_runner_runtime_available gemini || {
+    slabctl_error "Gemini credentials exist, but Runner does not report the runtime available"
+    return 1
+  }
+  echo "Gemini CLI is authenticated and available through Runner."
+}
+
+slabctl_gemini_logout() {
+  slabctl_compose exec -T \
+    -e GEMINI_CLI_HOME=/var/lib/slab-runner/gemini \
+    slab-runner node -e '
+      const fs = require("node:fs");
+      const path = require("node:path");
+      const directory = path.join(process.env.GEMINI_CLI_HOME, ".gemini");
+      for (const name of ["oauth_creds.json", "google_accounts.json", "user_id"]) {
+        fs.rmSync(path.join(directory, name), { force: true });
+      }
+    ' || return 1
+  slabctl_restart_runner || return 1
+  slabctl_refresh_runtime_state
+  echo "Gemini is signed out. Existing product data is unchanged."
 }

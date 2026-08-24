@@ -8,6 +8,8 @@ slab_validate_release_manifest() {
     (.stackVersion | test("^[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?$")) and
     (.channel | IN("development", "candidate", "stable", "drill")) and
     (.codexVersion | type == "string" and length > 0) and
+    ((.geminiCliVersion == null) or
+      (.geminiCliVersion | test("^[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?$"))) and
     (.images | type == "object") and
     (["agents", "work", "docs", "email", "runner"] | all(
       . as $service |

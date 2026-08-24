@@ -256,6 +256,9 @@ Usage:
   sudo slabctl codex login [--device-auth|--api-key]
   sudo slabctl codex status
   sudo slabctl codex logout
+  sudo slabctl gemini login
+  sudo slabctl gemini status
+  sudo slabctl gemini logout
   sudo slabctl proton setup
   sudo slabctl proton status
   sudo slabctl backup [--encrypt-with IDENTITY] [DESTINATION]
@@ -270,6 +273,8 @@ Usage:
 
 Device authorization is the default login method. API keys are accepted only
 through a hidden interactive prompt or stdin and are never written by slabctl.
+Gemini login uses Google's official OAuth flow in no-browser mode; its account
+credential remains in Runner-owned storage.
 EOF
 }
 
@@ -300,6 +305,14 @@ case "${1:-}" in
         ;;
       status) [ "$#" -eq 2 ] || { slabctl_usage >&2; exit 2; }; slabctl_codex_status ;;
       logout) [ "$#" -eq 2 ] || { slabctl_usage >&2; exit 2; }; slabctl_codex_logout ;;
+      *) slabctl_usage >&2; exit 2 ;;
+    esac
+    ;;
+  gemini)
+    case "${2:-}" in
+      login) [ "$#" -eq 2 ] || { slabctl_usage >&2; exit 2; }; slabctl_gemini_login ;;
+      status) [ "$#" -eq 2 ] || { slabctl_usage >&2; exit 2; }; slabctl_gemini_status ;;
+      logout) [ "$#" -eq 2 ] || { slabctl_usage >&2; exit 2; }; slabctl_gemini_logout ;;
       *) slabctl_usage >&2; exit 2 ;;
     esac
     ;;
