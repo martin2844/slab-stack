@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const helper = path.join(root, "installer", "lib", "render.sh");
-const manifest = path.join(root, "releases", "v0.1.2-candidate.20.json");
+const manifest = path.join(root, "releases", "v0.1.2-candidate.21.json");
 
 function render(
   directory,
@@ -51,7 +51,7 @@ test("renders a private installation from an immutable manifest", () => {
     assert.equal(result.status, 0, result.stderr);
     assert.equal(
       fs.readFileSync(path.join(temporaryDirectory, "VERSION"), "utf8").trim(),
-      "0.1.2-candidate.20",
+      "0.1.2-candidate.21",
     );
     assert.equal(
       fs
@@ -103,7 +103,7 @@ test("update rendering can defer the installed version identity", () => {
           "utf8",
         ),
       ).stackVersion,
-      "0.1.2-candidate.20",
+      "0.1.2-candidate.21",
     );
   } finally {
     fs.rmSync(temporaryDirectory, { recursive: true, force: true });

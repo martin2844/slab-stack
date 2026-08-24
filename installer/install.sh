@@ -2,7 +2,7 @@
 set -eu
 
 BUNDLE_ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
-DEFAULT_MANIFEST=$BUNDLE_ROOT/releases/v0.1.2-candidate.20.json
+DEFAULT_MANIFEST=$BUNDLE_ROOT/releases/v0.1.2-candidate.21.json
 
 # shellcheck source=installer/lib/preflight.sh
 . "$BUNDLE_ROOT/installer/lib/preflight.sh"
@@ -34,6 +34,8 @@ DEFAULT_MANIFEST=$BUNDLE_ROOT/releases/v0.1.2-candidate.20.json
 . "$BUNDLE_ROOT/installer/lib/domain.sh"
 # shellcheck source=installer/lib/proton.sh
 . "$BUNDLE_ROOT/installer/lib/proton.sh"
+# shellcheck source=installer/lib/metadata-repair.sh
+. "$BUNDLE_ROOT/installer/lib/metadata-repair.sh"
 
 SLAB_NON_INTERACTIVE=0
 SLAB_DRY_RUN=0
@@ -56,6 +58,7 @@ SLAB_PRIVATE_BIND_IP=
 SLAB_PRIVATE_PORT=
 SLAB_COMPOSE_PROJECT_NAME=
 SLAB_ADMIN_PASSWORD_FILE=
+SLAB_REPAIR_KNOWN_METADATA=0
 
 slab_usage() {
   cat <<'EOF'
@@ -65,6 +68,7 @@ Options:
   --non-interactive       Read declarative configuration instead of /dev/tty.
   --config FILE           Root-private configuration file for non-interactive mode.
   --manifest FILE         Release manifest from this verified installer bundle.
+  --repair-known-metadata Repair a narrowly identified release metadata defect and exit.
   --dry-run               Validate host, configuration, and release inputs without changes.
   --help                  Show this help.
 
@@ -121,6 +125,7 @@ while [ "$#" -gt 0 ]; do
       shift
       ;;
     --dry-run) SLAB_DRY_RUN=1 ;;
+    --repair-known-metadata) SLAB_REPAIR_KNOWN_METADATA=1 ;;
     --help) slab_usage; exit 0 ;;
     *) echo "Unknown installer option: $1" >&2; slab_usage >&2; exit 2 ;;
   esac
@@ -128,6 +133,19 @@ while [ "$#" -gt 0 ]; do
 done
 
 slab_require_root
+
+if [ "$SLAB_REPAIR_KNOWN_METADATA" -eq 1 ]; then
+  [ "$SLAB_DRY_RUN" -eq 0 ] || {
+    echo "--repair-known-metadata cannot be combined with --dry-run." >&2
+    exit 2
+  }
+  [ "$SLAB_NON_INTERACTIVE" -eq 0 ] && [ -z "$SLAB_CONFIG_FILE" ] || {
+    echo "--repair-known-metadata does not accept installer configuration options." >&2
+    exit 2
+  }
+  slab_repair_known_email_migration_metadata "$SLAB_MANIFEST"
+  exit 0
+fi
 
 if [ "$SLAB_NON_INTERACTIVE" -eq 1 ]; then
   [ -n "$SLAB_CONFIG_FILE" ] || {

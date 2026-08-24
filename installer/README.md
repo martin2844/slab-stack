@@ -26,6 +26,7 @@ installer/lib/lifecycle.sh
 installer/lib/domain.sh
 installer/lib/backup.sh
 installer/lib/systemd.sh
+installer/lib/metadata-repair.sh
 ```
 
 The current release implements private/domain rendering, root-private
@@ -201,6 +202,27 @@ workspace containing data that cannot be discarded.
 maintenance mode in Slab Agents, waits for active Runs and approvals to drain,
 creates a verified pre-update backup, applies one-shot migrations, and requires
 container health plus `/ready` before recording `UPDATED`.
+
+### Email metadata correction for affected 0.1.x releases
+
+Releases `0.1.0-candidate.16` through `0.1.0-candidate.19`, the disposable
+`0.1.0-drill.1`, stable `0.1.0` and `0.1.1`, plus the superseded
+`0.1.2-candidate.20`, declared a third Email migration that their pinned Email
+image does not contain. The mandatory pre-update backup correctly refuses that
+mismatch. Repair only this known release metadata defect with the signed
+candidate bundle, then run the normal update:
+
+```sh
+curl -fsSL https://github.com/martin2844/slab-stack/releases/latest/download/install.sh \
+  | sudo sh -s -- --version 0.1.2-candidate.21 -- --repair-known-metadata
+sudo slabctl update apply --channel candidate --yes
+```
+
+The repair is narrowly gated to exact official manifest hashes, the exact
+pinned Email image, and a live Email database whose applied migrations are
+exactly `[1,2]`. It takes the normal management lock, preserves the original
+manifest root-only, and does not modify containers, images, volumes, databases,
+or application data. Any other state is rejected rather than guessed.
 
 For a successful update whose migrations permit image rollback:
 
