@@ -7,7 +7,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const targetManifest = path.join(root, "releases", "v0.1.2-candidate.22.json");
+const targetManifest = path.join(root, "releases", "v0.1.2-candidate.23.json");
 const affectedManifests = [
   "v0.1.0-candidate.16.json",
   "v0.1.0-candidate.17.json",

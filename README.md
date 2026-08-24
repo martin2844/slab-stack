@@ -22,8 +22,8 @@ The implementation source of truth is:
 
 The first promoted stable stack release is recorded in
 [`releases/v0.1.1.json`](releases/v0.1.1.json). The next-release channel remains
-[`releases/v0.1.2-candidate.22.json`](releases/v0.1.2-candidate.22.json). Both pin
-public amd64/arm64 images for all five services. Candidate.22 packages the
+[`releases/v0.1.2-candidate.23.json`](releases/v0.1.2-candidate.23.json). Both pin
+public amd64/arm64 images for all five services. Candidate.23 packages the
 tested Slab Runner pairings for Codex CLI `0.148.0` and experimental Gemini CLI
 `0.56.0`; Gemini account authorization remains host-local Runner state.
 
@@ -59,7 +59,7 @@ templates, image pinning, network exposure, and Compose rendering with
 development fixtures. To render the immutable image environment for a release:
 
 ```bash
-node scripts/render-image-env.mjs releases/v0.1.2-candidate.22.json
+node scripts/render-image-env.mjs releases/v0.1.2-candidate.23.json
 ```
 
 Once a candidate manifest is ready, run the destructive-to-its-own-fixture only
@@ -89,7 +89,7 @@ bytes, and removes the fixture volumes on exit.
 Build the exact candidate bundle locally:
 
 ```bash
-./scripts/package-release.sh releases/v0.1.2-candidate.22.json dist
+./scripts/package-release.sh releases/v0.1.2-candidate.23.json dist
 ```
 
 The packaging step is deterministic for a given manifest and source tree. It
@@ -112,7 +112,7 @@ sudo sh install.sh
 A reviewed candidate can still be installed explicitly:
 
 ```bash
-sudo sh install.sh --version 0.1.2-candidate.22
+sudo sh install.sh --version 0.1.2-candidate.23
 ```
 
 Existing installations on affected `0.1.x` releases may need the
@@ -124,7 +124,7 @@ Bootstrap options precede installer options. For example, an inspect-only host
 check is:
 
 ```bash
-sudo sh install.sh --version 0.1.2-candidate.22 -- --dry-run
+sudo sh install.sh --version 0.1.2-candidate.23 -- --dry-run
 ```
 
 ## Repository layout

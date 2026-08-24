@@ -17,7 +17,7 @@ on:
       release_version:
         description: Expected signed release version
         required: true
-        default: 0.1.2-candidate.22
+        default: 0.1.2-candidate.23
         type: string
       use_stable_channel:
         description: Resolve the install through the signed stable channel
