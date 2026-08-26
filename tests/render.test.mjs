@@ -70,6 +70,16 @@ test("renders a private installation from an immutable manifest", () => {
     assert.match(environment, /^SLAB_PUBLIC_URL=http:\/\/127\.0\.0\.1:3009$/m);
     assert.match(environment, /^SLAB_AGENTS_IMAGE=.*@sha256:[a-f0-9]{64}$/m);
     assert.doesNotMatch(environment, /password|api[_-]?key=/i);
+    for (const secret of [
+      "honcho-api-key",
+      "honcho-openai-api-key",
+      "honcho-db-password",
+    ]) {
+      const secretPath = path.join(temporaryDirectory, "secrets", secret);
+      assert.ok(fs.statSync(secretPath).isFile());
+      assert.ok(fs.readFileSync(secretPath, "utf8").trim().length > 0);
+      assert.equal(fs.statSync(secretPath).mode & 0o777, 0o444);
+    }
   } finally {
     fs.rmSync(temporaryDirectory, { recursive: true, force: true });
   }
