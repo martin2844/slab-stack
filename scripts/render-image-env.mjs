@@ -5,7 +5,7 @@ import path from "node:path";
 import process from "node:process";
 
 const manifestPath = path.resolve(
-  process.argv[2] ?? "releases/v0.1.2-candidate.25.json",
+  process.argv[2] ?? "releases/v0.1.2-candidate.26.json",
 );
 const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
 

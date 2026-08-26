@@ -1,0 +1,76 @@
+{
+  "schemaVersion": 1,
+  "stackVersion": "0.1.2-candidate.26",
+  "channel": "candidate",
+  "releasedAt": "2026-08-26T14:26:00Z",
+  "minimumSlabctlVersion": "0.1.0-candidate.10",
+  "images": {
+    "agents": {
+      "ref": "ghcr.io/martin2844/slab-agents:candidate-d470f617fce585737ec14526704132256aa356ae",
+      "digest": "sha256:80b938083d08653d3157f85f10572244e43856eff6bdacc64b91098869a77505",
+      "platforms": ["linux/amd64", "linux/arm64"]
+    },
+    "work": {
+      "ref": "ghcr.io/martin2844/slab:candidate-bbafc81d62b2f429b3af1e8972a338f5276e0f7a",
+      "digest": "sha256:3190a68db66331027605dec6f07dfd12565b0ed9132d518b25367609edf1cfc5",
+      "platforms": ["linux/amd64", "linux/arm64"]
+    },
+    "docs": {
+      "ref": "ghcr.io/martin2844/slab-docs:candidate-1e2e6ed9ca2257a393e63e3219648471a63d480c",
+      "digest": "sha256:0521012b5465e92192699eb13a13826f07739995531e1a963c8e09db25a7d59a",
+      "platforms": ["linux/amd64", "linux/arm64"]
+    },
+    "email": {
+      "ref": "ghcr.io/martin2844/slab-email:candidate-3e09d33f9c5d15981bed051a23d4bea0af7f9296",
+      "digest": "sha256:00ce194827bba986a0c19f9afca8d93b6092f459f1458a0440734531978704dc",
+      "platforms": ["linux/amd64", "linux/arm64"]
+    },
+    "runner": {
+      "ref": "ghcr.io/martin2844/slab-runner:candidate-547ceff0e3a0ae1698db19972648e3b8ea9fc29e",
+      "digest": "sha256:78d30a2f2faee546f0bb81b62aa71efb9ebc817db442365072c03b142960f11b",
+      "platforms": ["linux/amd64", "linux/arm64"]
+    }
+  },
+  "codexVersion": "0.148.0",
+  "geminiCliVersion": "0.56.0",
+  "migrationCompatibility": {
+    "minimumUpgradeStack": "0.1.0-candidate.1",
+    "minimumRollbackStack": "0.1.2-candidate.24"
+  },
+  "dataCompatibility": {
+    "schemaVersion": 1,
+    "volumes": {
+      "agents_data": {
+        "migrations": [
+          "202608160001_initial_control_plane.cjs",
+          "202608170002_agent_full_access.cjs",
+          "202608170003_integrations.cjs",
+          "202608170004_agent_quick_actions.cjs",
+          "202608170005_work_coordination.cjs",
+          "202608170006_run_execution_semantics.cjs",
+          "202608180007_email_integration.cjs",
+          "202608190010_custom_integrations.cjs",
+          "202608190011_fix_custom_integrations.cjs",
+          "202608200012_single_user_auth.cjs",
+          "202608230013_calendar_integrations.cjs",
+          "202608230014_integration_snapshot_markers.cjs",
+          "202608230015_oauth_state_version.cjs",
+          "202608240016_durable_dispatch.cjs",
+          "202608240017_runner_resume_cursor.cjs",
+          "202608240018_operator_packs.cjs",
+          "202608240019_operator_pack_resource_provenance.cjs",
+          "202608240020_operator_pack_reattachable.cjs",
+          "202608240021_operator_pack_acceptance_version.cjs",
+          "202608240022_runtime_provider_choice.cjs",
+          "202608240023_run_budgets.cjs",
+          "202608240024_budget_exposure_index.cjs",
+          "202608240024_direct_api_runtime.cjs",
+          "202608240025_gemini_runtime.cjs"
+        ]
+      },
+      "work_data": { "migrations": ["1", "2"] },
+      "docs_data": { "migrations": ["1", "2"] },
+      "email_data": { "migrations": ["1", "2", "3"] }
+    }
+  }
+}

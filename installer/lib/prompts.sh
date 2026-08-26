@@ -241,6 +241,8 @@ slab_collect_interactive_configuration() {
   slab_validate_memory_mode "$SLAB_MEMORY_MODE"
   SLAB_HONCHO_URL=https://api.honcho.dev
   SLAB_HONCHO_WORKSPACE_ID=slab
+  # Read by the versioned installer after this sourced helper returns.
+  # shellcheck disable=SC2034
   SLAB_MEMORY_MAX_CONTEXT_TOKENS=900
   SLAB_HONCHO_API_KEY=
   SLAB_HONCHO_OPENAI_API_KEY=
@@ -253,6 +255,8 @@ slab_collect_interactive_configuration() {
       SLAB_HONCHO_WORKSPACE_ID=$SLAB_PROMPT_VALUE
       slab_validate_honcho_workspace "$SLAB_HONCHO_WORKSPACE_ID"
       slab_prompt_hidden_value "Honcho API key"
+      # Read by the versioned installer after this sourced helper returns.
+      # shellcheck disable=SC2034
       SLAB_HONCHO_API_KEY=$SLAB_PROMPT_SECRET
       SLAB_PROMPT_SECRET=
       ;;
@@ -263,6 +267,8 @@ slab_collect_interactive_configuration() {
       SLAB_HONCHO_WORKSPACE_ID=$SLAB_PROMPT_VALUE
       slab_validate_honcho_workspace "$SLAB_HONCHO_WORKSPACE_ID"
       slab_prompt_hidden_value "OpenAI API key for Honcho"
+      # Read by the versioned installer after this sourced helper returns.
+      # shellcheck disable=SC2034
       SLAB_HONCHO_OPENAI_API_KEY=$SLAB_PROMPT_SECRET
       SLAB_PROMPT_SECRET=
       SLAB_HONCHO_URL=http://honcho-api:8000
