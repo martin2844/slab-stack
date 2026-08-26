@@ -703,7 +703,7 @@ test("current candidate upgrades stable without declaring unsafe image rollback"
   );
   const candidate = JSON.parse(
     fs.readFileSync(
-      path.join(root, "releases/v0.1.2-candidate.24.json"),
+      path.join(root, "releases/v0.1.2-candidate.25.json"),
       "utf8",
     ),
   );
