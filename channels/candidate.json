@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "channel": "candidate",
-  "stackVersion": "0.1.2-candidate.30",
-  "manifestUrl": "https://github.com/martin2844/slab-stack/releases/download/v0.1.2-candidate.30/v0.1.2-candidate.30.json",
-  "manifestSha256": "c459c6d9bba8c643b0d1832e166fcba03b4b71cfe11d55a3ab859297c82e19b3"
+  "stackVersion": "0.1.2-candidate.31",
+  "manifestUrl": "https://github.com/martin2844/slab-stack/releases/download/v0.1.2-candidate.31/v0.1.2-candidate.31.json",
+  "manifestSha256": "18d104cf7c9d269cc4f675f46163b68c0008facf579eaaa0e693066503cc34de"
 }
