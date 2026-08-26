@@ -15,6 +15,9 @@ const secretNames = [
   "email-admin-key",
   "email-master-key",
   "session-secret",
+  "honcho-api-key",
+  "honcho-openai-api-key",
+  "honcho-db-password",
 ];
 
 function prepare(directory) {
@@ -53,6 +56,42 @@ test("creates idempotent Compose-readable secrets under a host-private directory
         initialValues.get(name),
       );
     }
+  } finally {
+    fs.rmSync(temporaryDirectory, { recursive: true, force: true });
+  }
+});
+
+test("replaces an installer-supplied secret without exposing it", () => {
+  const temporaryDirectory = fs.mkdtempSync(
+    path.join(os.tmpdir(), "slab-secrets-replace-"),
+  );
+  const secretsDirectory = path.join(temporaryDirectory, "secrets");
+  const source = path.join(temporaryDirectory, "source");
+  fs.writeFileSync(source, "managed-honcho-secret\n", { mode: 0o600 });
+  try {
+    assert.equal(prepare(secretsDirectory).status, 0);
+    const result = spawnSync(
+      "sh",
+      [
+        "-c",
+        '. "$1"; slab_replace_secret_from_file "$2" honcho-api-key "$3"',
+        "slab-secrets",
+        helper,
+        secretsDirectory,
+        source,
+      ],
+      { encoding: "utf8" },
+    );
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stdout + result.stderr, "");
+    assert.equal(
+      fs.readFileSync(path.join(secretsDirectory, "honcho-api-key"), "utf8"),
+      "managed-honcho-secret\n",
+    );
+    assert.equal(
+      fs.statSync(path.join(secretsDirectory, "honcho-api-key")).mode & 0o777,
+      0o444,
+    );
   } finally {
     fs.rmSync(temporaryDirectory, { recursive: true, force: true });
   }

@@ -52,7 +52,10 @@ slab_prepare_secrets() {
     runner-token \
     email-admin-key \
     email-master-key \
-    session-secret
+    session-secret \
+    honcho-api-key \
+    honcho-openai-api-key \
+    honcho-db-password
   do
     slab_ensure_secret_file "$secret_directory" "$secret_name" || {
       umask "$old_umask"
@@ -61,4 +64,39 @@ slab_prepare_secrets() {
   done
 
   umask "$old_umask"
+}
+
+slab_replace_secret() {
+  secret_directory=$1
+  secret_name=$2
+  value=$3
+  [ -n "$value" ] || return 0
+  target=$secret_directory/$secret_name
+  temporary=$(mktemp "$secret_directory/.${secret_name}.replace.XXXXXX") || return 1
+  if ! printf '%s\n' "$value" > "$temporary"; then
+    rm -f "$temporary"
+    return 1
+  fi
+  chmod 0444 "$temporary"
+  mv "$temporary" "$target"
+}
+
+slab_replace_secret_from_file() {
+  secret_directory=$1
+  secret_name=$2
+  source_file=$3
+  [ -n "$source_file" ] || return 0
+  target=$secret_directory/$secret_name
+  temporary=$(mktemp "$secret_directory/.${secret_name}.replace.XXXXXX") || return 1
+  if ! awk 'NR > 1 { exit 1 }' "$source_file" >/dev/null; then
+    rm -f "$temporary"
+    echo "Secret input must contain exactly one line: $source_file" >&2
+    return 1
+  fi
+  if ! cp "$source_file" "$temporary" || [ ! -s "$temporary" ]; then
+    rm -f "$temporary"
+    return 1
+  fi
+  chmod 0444 "$temporary"
+  mv "$temporary" "$target"
 }

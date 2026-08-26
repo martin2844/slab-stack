@@ -58,6 +58,14 @@ SLAB_PRIVATE_BIND_IP=
 SLAB_PRIVATE_PORT=
 SLAB_COMPOSE_PROJECT_NAME=
 SLAB_ADMIN_PASSWORD_FILE=
+SLAB_MEMORY_MODE=disabled
+SLAB_HONCHO_URL=https://api.honcho.dev
+SLAB_HONCHO_WORKSPACE_ID=slab
+SLAB_MEMORY_MAX_CONTEXT_TOKENS=900
+SLAB_HONCHO_API_KEY_FILE=
+SLAB_HONCHO_OPENAI_API_KEY_FILE=
+SLAB_HONCHO_API_KEY=
+SLAB_HONCHO_OPENAI_API_KEY=
 SLAB_REPAIR_KNOWN_METADATA=0
 
 slab_usage() {
@@ -80,6 +88,9 @@ EOF
 slab_installer_exit() {
   exit_status=$1
   SLAB_ADMIN_PASSWORD=
+  SLAB_HONCHO_API_KEY=
+  SLAB_HONCHO_OPENAI_API_KEY=
+  SLAB_PROMPT_SECRET=
   if [ -n "$SLAB_COMPOSE_DIAGNOSTIC" ]; then
     rm -f "$SLAB_COMPOSE_DIAGNOSTIC"
     SLAB_COMPOSE_DIAGNOSTIC=
@@ -201,6 +212,7 @@ echo "  Directory: $SLAB_INSTALL_DIRECTORY"
 echo "  Access:    $SLAB_ACCESS_MODE"
 echo "  URL:       $SLAB_PUBLIC_URL"
 echo "  Version:   $requested_version"
+echo "  Memory:    $SLAB_MEMORY_MODE"
 echo
 
 if [ "$SLAB_NON_INTERACTIVE" -eq 0 ]; then
@@ -247,6 +259,19 @@ slab_write_install_state \
   "$SLAB_PUBLIC_URL" "$SLAB_COMPOSE_PROJECT_NAME" \
   "$SLAB_INSTALL_ATTEMPT_STARTED_AT" "$SLAB_INSTALL_PHASE" INSTALLING
 slab_prepare_secrets "$SLAB_INSTALL_DIRECTORY/secrets"
+if [ "$SLAB_NON_INTERACTIVE" -eq 1 ]; then
+  slab_replace_secret_from_file "$SLAB_INSTALL_DIRECTORY/secrets" \
+    honcho-api-key "$SLAB_HONCHO_API_KEY_FILE"
+  slab_replace_secret_from_file "$SLAB_INSTALL_DIRECTORY/secrets" \
+    honcho-openai-api-key "$SLAB_HONCHO_OPENAI_API_KEY_FILE"
+else
+  slab_replace_secret "$SLAB_INSTALL_DIRECTORY/secrets" \
+    honcho-api-key "$SLAB_HONCHO_API_KEY"
+  slab_replace_secret "$SLAB_INSTALL_DIRECTORY/secrets" \
+    honcho-openai-api-key "$SLAB_HONCHO_OPENAI_API_KEY"
+fi
+SLAB_HONCHO_API_KEY=
+SLAB_HONCHO_OPENAI_API_KEY=
 slab_render_installation \
   "$BUNDLE_ROOT" \
   "$SLAB_INSTALL_DIRECTORY" \

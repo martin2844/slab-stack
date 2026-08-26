@@ -17,6 +17,29 @@ metadata/release-manifest.json
 secrets/docs-api-key
 secrets/email-admin-key
 secrets/email-master-key
+secrets/honcho-api-key
+secrets/honcho-db-password
+secrets/honcho-openai-api-key
+secrets/runner-token
+secrets/session-secret
+secrets/work-api-key
+EOF
+}
+
+slabctl_backup_legacy_required_files() {
+  cat <<'EOF'
+metadata/Caddyfile
+metadata/VERSION
+metadata/compose.domain.yml
+metadata/compose.private.yml
+metadata/compose.yml
+metadata/config-access-mode
+metadata/config-install-state.json
+metadata/config-install.env
+metadata/release-manifest.json
+secrets/docs-api-key
+secrets/email-admin-key
+secrets/email-master-key
 secrets/runner-token
 secrets/session-secret
 secrets/work-api-key
@@ -564,9 +587,11 @@ slabctl_backup_create() (
 slabctl_backup_validate_manifest() {
   manifest_path=$1
   required_files=$(slabctl_backup_required_files)
+  legacy_required_files=$(slabctl_backup_legacy_required_files)
   jq -e --arg format "$SLABCTL_BACKUP_FORMAT" \
     --arg legacyFormat "$SLABCTL_BACKUP_LEGACY_FORMAT" \
-    --arg requiredFiles "$required_files" '
+    --arg requiredFiles "$required_files" \
+    --arg legacyRequiredFiles "$legacy_required_files" '
     . as $manifest |
     ((.schemaVersion == 1 and .format == $legacyFormat) or
       (.schemaVersion == 2 and .format == $format)) and
@@ -576,7 +601,8 @@ slabctl_backup_validate_manifest() {
     (.source.accessMode | IN("private", "domain")) and
     (.images | type == "object") and
     (.files | type == "array") and
-    (([.files[].path] | sort) == ($requiredFiles | split("\n") | sort)) and
+    ((([.files[].path] | sort) == ($requiredFiles | split("\n") | sort)) or
+      (([.files[].path] | sort) == ($legacyRequiredFiles | split("\n") | sort))) and
     (.volumes | type == "array" and length > 0) and
     ([.volumes[].logicalName] | length == (unique | length)) and
     ([.files[].path, .volumes[].archivePath] | length == (unique | length)) and

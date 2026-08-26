@@ -10,6 +10,29 @@ import { fileURLToPath } from "node:url";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const backupLibrary = path.join(root, "installer/lib/backup.sh");
 
+test("current backups include memory secrets while legacy archives stay valid", () => {
+  const current = run("sh", [
+    "-c",
+    '. "$1"; slabctl_backup_required_files',
+    "backup-contract",
+    backupLibrary,
+  ]).stdout;
+  const legacy = run("sh", [
+    "-c",
+    '. "$1"; slabctl_backup_legacy_required_files',
+    "backup-contract",
+    backupLibrary,
+  ]).stdout;
+  for (const name of [
+    "honcho-api-key",
+    "honcho-openai-api-key",
+    "honcho-db-password",
+  ]) {
+    assert.match(current, new RegExp(`^secrets/${name}$`, "m"));
+    assert.doesNotMatch(legacy, new RegExp(`^secrets/${name}$`, "m"));
+  }
+});
+
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, { encoding: "utf8", ...options });
   assert.equal(result.status, 0, result.stderr || result.stdout);

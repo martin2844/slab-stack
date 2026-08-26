@@ -24,6 +24,32 @@ test("waits until every long-running service is healthy", () => {
   assert.equal(result.status, 0, result.stderr);
 });
 
+test("self-hosted memory waits for the full Honcho topology", () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "slab-health-memory-"));
+  const observed = path.join(directory, "services");
+  try {
+    const result = run(
+      `
+        slab_service_health_status() { printf '%s\\n' "$1" >> "$SLAB_TEST_SERVICES"; echo healthy; }
+        slab_wait_for_healthy_stack
+      `,
+      { SLAB_MEMORY_MODE: "self_hosted", SLAB_TEST_SERVICES: observed },
+    );
+    assert.equal(result.status, 0, result.stderr);
+    const services = fs.readFileSync(observed, "utf8");
+    for (const service of [
+      "honcho-database",
+      "honcho-redis",
+      "honcho-api",
+      "honcho-deriver",
+    ]) {
+      assert.match(services, new RegExp(`^${service}$`, "m"));
+    }
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test("domain mode also requires the Caddy process to be running", () => {
   const healthy = run(
     `

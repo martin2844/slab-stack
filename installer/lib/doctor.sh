@@ -26,7 +26,11 @@ slabctl_doctor_append() {
 
 slabctl_doctor_service_checks() {
   output=$1
-  for service_name in slab-api slab-mcp slab-docs slab-email slab-runner slab-agents; do
+  services="slab-api slab-mcp slab-docs slab-email slab-runner slab-agents"
+  if [ "$(slabctl_memory_mode)" = self_hosted ]; then
+    services="$services honcho-database honcho-redis honcho-api honcho-deriver"
+  fi
+  for service_name in $services; do
     health=$(slabctl_service_health_status "$service_name" 2>/dev/null || true)
     if [ "$health" = healthy ]; then
       slabctl_doctor_append "$output" "service.$service_name" pass "healthy"

@@ -25,7 +25,11 @@ slab_wait_for_healthy_stack() {
   count=0
   while :; do
     pending=
-    for service_name in slab-api slab-mcp slab-docs slab-email slab-runner slab-agents; do
+    services="slab-api slab-mcp slab-docs slab-email slab-runner slab-agents"
+    if [ "${SLAB_MEMORY_MODE:-disabled}" = self_hosted ]; then
+      services="$services honcho-database honcho-redis honcho-api honcho-deriver"
+    fi
+    for service_name in $services; do
       health=$(slab_service_health_status "$service_name" 2>/dev/null || true)
       [ "$health" = healthy ] || pending="$pending $service_name"
     done

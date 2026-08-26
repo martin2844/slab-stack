@@ -185,6 +185,111 @@ services:
       retries: 5
       start_period: 15s
 
+  honcho-database:
+    <<: *service-defaults
+    profiles: [memory]
+    image: ${SLAB_HONCHO_DATABASE_IMAGE:?SLAB_HONCHO_DATABASE_IMAGE is required}
+    command: ["postgres", "-c", "max_connections=200"]
+    networks: [control]
+    volumes:
+      - honcho_db_data:/var/lib/postgresql/data
+    secrets:
+      - honcho_db_password
+    environment:
+      POSTGRES_DB: postgres
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD_FILE: /run/secrets/honcho_db_password
+      PGDATA: /var/lib/postgresql/data/pgdata
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  honcho-redis:
+    <<: *service-defaults
+    profiles: [memory]
+    image: ${SLAB_HONCHO_REDIS_IMAGE:?SLAB_HONCHO_REDIS_IMAGE is required}
+    command: ["redis-server", "--appendonly", "yes"]
+    networks: [control]
+    volumes:
+      - honcho_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  honcho-api:
+    <<: *service-defaults
+    profiles: [memory]
+    image: ${SLAB_HONCHO_IMAGE:?SLAB_HONCHO_IMAGE is required}
+    entrypoint:
+      - sh
+      - -c
+      - |
+        export LLM_OPENAI_API_KEY="$$(cat /run/secrets/honcho_openai_api_key)"
+        export DB_CONNECTION_URI="postgresql+psycopg://postgres:$$(cat /run/secrets/honcho_db_password)@honcho-database:5432/postgres"
+        exec sh docker/entrypoint.sh
+    expose: ["8000"]
+    networks: [control]
+    secrets:
+      - honcho_openai_api_key
+      - honcho_db_password
+    environment:
+      AUTH_USE_AUTH: "false"
+      CACHE_ENABLED: "true"
+      CACHE_URL: redis://honcho-redis:6379/0?suppress=true
+      SENTRY_ENABLED: "false"
+      TELEMETRY_ENABLED: "false"
+    depends_on:
+      honcho-database:
+        condition: service_healthy
+      honcho-redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "/app/.venv/bin/python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2).read()"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+
+  honcho-deriver:
+    <<: *service-defaults
+    profiles: [memory]
+    image: ${SLAB_HONCHO_IMAGE:?SLAB_HONCHO_IMAGE is required}
+    entrypoint:
+      - sh
+      - -c
+      - |
+        export LLM_OPENAI_API_KEY="$$(cat /run/secrets/honcho_openai_api_key)"
+        export DB_CONNECTION_URI="postgresql+psycopg://postgres:$$(cat /run/secrets/honcho_db_password)@honcho-database:5432/postgres"
+        exec /app/.venv/bin/python -m src.deriver
+    networks: [control]
+    secrets:
+      - honcho_openai_api_key
+      - honcho_db_password
+    environment:
+      AUTH_USE_AUTH: "false"
+      CACHE_ENABLED: "true"
+      CACHE_URL: redis://honcho-redis:6379/0?suppress=true
+      SENTRY_ENABLED: "false"
+      TELEMETRY_ENABLED: "false"
+    depends_on:
+      honcho-api:
+        condition: service_healthy
+      honcho-database:
+        condition: service_healthy
+      honcho-redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "kill -0 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
   slab-agents:
     <<: *service-defaults
     image: ${SLAB_AGENTS_IMAGE:?SLAB_AGENTS_IMAGE is required}
@@ -198,6 +303,7 @@ services:
       - runner_token
       - email_admin_key
       - session_secret
+      - honcho_api_key
     environment:
       HOSTNAME: 0.0.0.0
       PORT: "3009"
@@ -214,6 +320,11 @@ services:
       RUNNER_TOKEN_FILE: /run/secrets/runner_token
       SLAB_EMAIL_ADMIN_KEY_FILE: /run/secrets/email_admin_key
       SLAB_SESSION_SECRET_FILE: /run/secrets/session_secret
+      MEMORY_PROVIDER: ${SLAB_MEMORY_PROVIDER:-disabled}
+      HONCHO_URL: ${SLAB_HONCHO_URL:-https://api.honcho.dev}
+      HONCHO_API_KEY_FILE: ${SLAB_HONCHO_API_KEY_FILE_IN_CONTAINER:-}
+      HONCHO_WORKSPACE_ID: ${SLAB_HONCHO_WORKSPACE_ID:-slab}
+      MEMORY_MAX_CONTEXT_TOKENS: ${SLAB_MEMORY_MAX_CONTEXT_TOKENS:-900}
     depends_on:
       slab-api:
         condition: service_healthy
@@ -239,6 +350,8 @@ volumes:
   email_data:
   runner_codex:
   runner_gemini:
+  honcho_db_data:
+  honcho_redis_data:
 
 secrets:
   work_api_key:
@@ -253,3 +366,9 @@ secrets:
     file: ./secrets/email-master-key
   session_secret:
     file: ./secrets/session-secret
+  honcho_api_key:
+    file: ./secrets/honcho-api-key
+  honcho_openai_api_key:
+    file: ./secrets/honcho-openai-api-key
+  honcho_db_password:
+    file: ./secrets/honcho-db-password

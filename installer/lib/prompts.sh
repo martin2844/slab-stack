@@ -187,6 +187,28 @@ slab_prompt_password() {
   ) || return 1
 }
 
+slab_prompt_hidden_value() {
+  prompt=$1
+  SLAB_PROMPT_SECRET=$(
+    restore_tty() {
+      stty echo < /dev/tty 2>/dev/null || true
+    }
+    trap restore_tty EXIT
+    trap 'restore_tty; exit 130' HUP INT TERM
+    printf '%s: ' "$prompt" > /dev/tty
+    stty -echo < /dev/tty
+    IFS= read -r secret < /dev/tty
+    restore_tty
+    printf '\n' > /dev/tty
+    [ -n "$secret" ] || exit 1
+    trap - EXIT HUP INT TERM
+    printf '%s' "$secret"
+  ) || {
+    slab_prompt_error "$prompt cannot be empty."
+    return 1
+  }
+}
+
 slab_collect_interactive_configuration() {
   slab_prompt_value "Installation directory" "/opt/slab"
   SLAB_INSTALL_DIRECTORY=$SLAB_PROMPT_VALUE
@@ -213,5 +235,38 @@ slab_collect_interactive_configuration() {
     # shellcheck disable=SC2034
     SLAB_PUBLIC_URL=http://127.0.0.1:3009
   fi
+
+  slab_prompt_value "Persistent memory (disabled/managed/self_hosted)" "disabled"
+  SLAB_MEMORY_MODE=$SLAB_PROMPT_VALUE
+  slab_validate_memory_mode "$SLAB_MEMORY_MODE"
+  SLAB_HONCHO_URL=https://api.honcho.dev
+  SLAB_HONCHO_WORKSPACE_ID=slab
+  SLAB_MEMORY_MAX_CONTEXT_TOKENS=900
+  SLAB_HONCHO_API_KEY=
+  SLAB_HONCHO_OPENAI_API_KEY=
+  case "$SLAB_MEMORY_MODE" in
+    managed)
+      slab_prompt_value "Honcho URL" "https://api.honcho.dev"
+      SLAB_HONCHO_URL=$SLAB_PROMPT_VALUE
+      slab_validate_honcho_url "$SLAB_HONCHO_URL"
+      slab_prompt_value "Honcho workspace ID" "slab"
+      SLAB_HONCHO_WORKSPACE_ID=$SLAB_PROMPT_VALUE
+      slab_validate_honcho_workspace "$SLAB_HONCHO_WORKSPACE_ID"
+      slab_prompt_hidden_value "Honcho API key"
+      SLAB_HONCHO_API_KEY=$SLAB_PROMPT_SECRET
+      SLAB_PROMPT_SECRET=
+      ;;
+    self_hosted)
+      echo "Self-hosted Honcho keeps memory data on this server." > /dev/tty
+      echo "Its derivation and embedding workers still call OpenAI with the key below." > /dev/tty
+      slab_prompt_value "Honcho workspace ID" "slab"
+      SLAB_HONCHO_WORKSPACE_ID=$SLAB_PROMPT_VALUE
+      slab_validate_honcho_workspace "$SLAB_HONCHO_WORKSPACE_ID"
+      slab_prompt_hidden_value "OpenAI API key for Honcho"
+      SLAB_HONCHO_OPENAI_API_KEY=$SLAB_PROMPT_SECRET
+      SLAB_PROMPT_SECRET=
+      SLAB_HONCHO_URL=http://honcho-api:8000
+      ;;
+  esac
 
 }

@@ -17,6 +17,7 @@ function render(
   domain = "",
   email = "",
   writeIdentity = "1",
+  environment = {},
 ) {
   return spawnSync(
     "sh",
@@ -34,7 +35,7 @@ function render(
       email,
       writeIdentity,
     ],
-    { encoding: "utf8" },
+    { encoding: "utf8", env: { ...process.env, ...environment } },
   );
 }
 
@@ -69,6 +70,70 @@ test("renders a private installation from an immutable manifest", () => {
     assert.match(environment, /^SLAB_PUBLIC_URL=http:\/\/127\.0\.0\.1:3009$/m);
     assert.match(environment, /^SLAB_AGENTS_IMAGE=.*@sha256:[a-f0-9]{64}$/m);
     assert.doesNotMatch(environment, /password|api[_-]?key=/i);
+  } finally {
+    fs.rmSync(temporaryDirectory, { recursive: true, force: true });
+  }
+});
+
+test("renders managed memory without writing its API key to the environment", () => {
+  const temporaryDirectory = fs.mkdtempSync(
+    path.join(os.tmpdir(), "slab-render-managed-memory-"),
+  );
+  try {
+    const result = render(
+      temporaryDirectory,
+      "private",
+      "http://127.0.0.1:3009",
+      "",
+      "",
+      "1",
+      {
+        SLAB_MEMORY_MODE: "managed",
+        SLAB_HONCHO_URL: "https://api.honcho.dev",
+        SLAB_HONCHO_WORKSPACE_ID: "demo-memory",
+        SLAB_MEMORY_MAX_CONTEXT_TOKENS: "700",
+      },
+    );
+    assert.equal(result.status, 0, result.stderr);
+    const environment = fs.readFileSync(
+      path.join(temporaryDirectory, "config", "install.env"),
+      "utf8",
+    );
+    assert.match(environment, /^SLAB_MEMORY_MODE=managed$/m);
+    assert.match(environment, /^SLAB_MEMORY_PROVIDER=honcho$/m);
+    assert.match(environment, /^COMPOSE_PROFILES=$/m);
+    assert.match(
+      environment,
+      /^SLAB_HONCHO_API_KEY_FILE_IN_CONTAINER=\/run\/secrets\/honcho_api_key$/m,
+    );
+    assert.doesNotMatch(environment, /managed-honcho-secret/);
+  } finally {
+    fs.rmSync(temporaryDirectory, { recursive: true, force: true });
+  }
+});
+
+test("renders self-hosted memory as an internal Compose profile", () => {
+  const temporaryDirectory = fs.mkdtempSync(
+    path.join(os.tmpdir(), "slab-render-self-hosted-memory-"),
+  );
+  try {
+    const result = render(
+      temporaryDirectory,
+      "private",
+      "http://127.0.0.1:3009",
+      "",
+      "",
+      "1",
+      { SLAB_MEMORY_MODE: "self_hosted" },
+    );
+    assert.equal(result.status, 0, result.stderr);
+    const environment = fs.readFileSync(
+      path.join(temporaryDirectory, "config", "install.env"),
+      "utf8",
+    );
+    assert.match(environment, /^COMPOSE_PROFILES=memory$/m);
+    assert.match(environment, /^SLAB_HONCHO_URL=http:\/\/honcho-api:8000$/m);
+    assert.match(environment, /^SLAB_MEMORY_PROVIDER=honcho$/m);
   } finally {
     fs.rmSync(temporaryDirectory, { recursive: true, force: true });
   }

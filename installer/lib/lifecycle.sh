@@ -31,13 +31,21 @@ slabctl_service_health_status() {
     --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}'
 }
 
+slabctl_memory_mode() {
+  sed -n 's/^SLAB_MEMORY_MODE=//p' "$SLABCTL_ENVIRONMENT_FILE" | head -n 1
+}
+
 slabctl_wait_for_healthy_stack() {
   attempts=${SLABCTL_HEALTH_ATTEMPTS:-90}
   interval=${SLABCTL_HEALTH_INTERVAL_SECONDS:-2}
   attempt=1
   while [ "$attempt" -le "$attempts" ]; do
     pending=
-    for service_name in slab-api slab-mcp slab-docs slab-email slab-runner slab-agents; do
+    services="slab-api slab-mcp slab-docs slab-email slab-runner slab-agents"
+    if [ "$(slabctl_memory_mode)" = self_hosted ]; then
+      services="$services honcho-database honcho-redis honcho-api honcho-deriver"
+    fi
+    for service_name in $services; do
       health=$(slabctl_service_health_status "$service_name" 2>/dev/null || true)
       [ "$health" = healthy ] || pending="$pending $service_name"
     done

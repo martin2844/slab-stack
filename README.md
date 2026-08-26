@@ -48,6 +48,12 @@ Docker and the network are available, stops it before Docker shuts down, and
 provides standard host lifecycle operations without exposing the Docker socket
 to Slab Agents.
 
+Persistent agent memory is optional. The installer can leave it disabled,
+connect Slab Agents to managed Honcho, or activate a self-hosted Honcho Compose
+profile (API, deriver, PostgreSQL/pgvector, and Redis). The default remains
+disabled, so existing installations do not acquire a new data processor or
+resource footprint automatically.
+
 ## Validate
 
 ```bash

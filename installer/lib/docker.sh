@@ -81,7 +81,11 @@ slab_sanitize_diagnostic_stream() {
 }
 
 slab_detect_first_failing_service() {
-  for service_name in slab-api slab-mcp slab-docs slab-email slab-runner slab-agents caddy; do
+  services="slab-api slab-mcp slab-docs slab-email slab-runner slab-agents caddy"
+  if [ "${SLAB_MEMORY_MODE:-disabled}" = self_hosted ]; then
+    services="$services honcho-database honcho-redis honcho-api honcho-deriver"
+  fi
+  for service_name in $services; do
     container_id=$(slab_compose_service_container "$service_name" 2>/dev/null || true)
     [ -n "$container_id" ] || continue
     container_state=$(docker inspect "$container_id" \

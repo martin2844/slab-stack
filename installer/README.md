@@ -58,6 +58,7 @@ SLAB_PRIVATE_BIND_IP=127.0.0.1
 SLAB_PRIVATE_PORT=3009
 SLAB_COMPOSE_PROJECT_NAME=slab
 SLAB_ADMIN_PASSWORD_FILE=/root/slab-admin-password
+SLAB_MEMORY_MODE=disabled
 ```
 
 ```sh
@@ -74,6 +75,56 @@ Compose environment, state file, or process arguments.
 The password file is only required while the initial administrator still
 needs to be created. A ready installation can be reconciled without that
 one-time file, and its existing administrator password is never rotated.
+
+## Optional persistent memory
+
+The installer asks whether persistent memory should be `disabled`, `managed`,
+or `self_hosted`. Disabled is the default and starts no extra containers.
+
+Managed Honcho uses a root-private one-line API-key file:
+
+```text
+SLAB_MEMORY_MODE=managed
+SLAB_HONCHO_URL=https://api.honcho.dev
+SLAB_HONCHO_WORKSPACE_ID=slab
+SLAB_MEMORY_MAX_CONTEXT_TOKENS=900
+SLAB_HONCHO_API_KEY_FILE=/root/honcho-api-key
+```
+
+Self-hosted Honcho activates four private Compose services: `honcho-api`,
+`honcho-deriver`, `honcho-database` (PostgreSQL/pgvector), and `honcho-redis`.
+Its OpenAI key is used by Honcho for derivation and embeddings:
+
+```text
+SLAB_MEMORY_MODE=self_hosted
+SLAB_HONCHO_WORKSPACE_ID=slab
+SLAB_MEMORY_MAX_CONTEXT_TOKENS=900
+SLAB_HONCHO_OPENAI_API_KEY_FILE=/root/honcho-openai-api-key
+```
+
+Both input files must be root-owned, mode `0400` or `0600`, non-empty, and
+contain exactly one line. The installer copies their values into root-private
+Compose secret files; neither value appears in `install.env`, process
+arguments, install state, or the browser.
+
+Self-hosted means the Honcho database remains on the VPS. It does not mean
+fully offline: the default Honcho derivation and embedding configuration sends
+the relevant memory input to OpenAI. Managed mode sends memory input to the
+configured Honcho service. Slab Agents records only operator-authored chat
+messages and treats recalled memory as non-authoritative context. Work, Docs,
+Email, and current integrations remain the sources of truth.
+
+The Memory tab in Slab Agents can disable memory or change provider URL,
+workspace, API key, and recall budget. Enabling the self-hosted Docker topology
+itself remains an installer concern because the web container has no Docker
+socket access.
+
+Maintainers can validate the self-hosted memory topology without starting the
+rest of the stack:
+
+```sh
+./scripts/honcho-smoke.sh
+```
 
 ## Service lifecycle
 
@@ -105,8 +156,8 @@ sudo slabctl domain verify
 
 Stopping the service removes containers and project networks but never named
 volumes. Starting it again reruns the idempotent migration jobs before the
-long-running services, so Work, Docs, agents, Email metadata, and Codex auth
-remain persistent.
+long-running services, so Work, Docs, agents, Email metadata, optional Honcho
+memory data, and Codex auth remain persistent.
 
 The installation directory and every existing ancestor must be root-owned and
 must not be group/world writable. This protects the root-run Compose boundary;

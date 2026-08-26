@@ -56,6 +56,30 @@ slab_render_installation() {
   # arguments. Defaulting to deferred identity keeps those clients from
   # claiming the target version before management replacement commits.
   write_identity=${10:-0}
+  memory_mode=${SLAB_MEMORY_MODE:-disabled}
+  honcho_url=${SLAB_HONCHO_URL:-https://api.honcho.dev}
+  honcho_workspace=${SLAB_HONCHO_WORKSPACE_ID:-slab}
+  memory_context_tokens=${SLAB_MEMORY_MAX_CONTEXT_TOKENS:-900}
+
+  case "$memory_mode" in
+    disabled)
+      compose_profiles=
+      memory_provider=disabled
+      honcho_api_key_file=
+      ;;
+    managed)
+      compose_profiles=
+      memory_provider=honcho
+      honcho_api_key_file=/run/secrets/honcho_api_key
+      ;;
+    self_hosted)
+      compose_profiles=memory
+      memory_provider=honcho
+      honcho_url=http://honcho-api:8000
+      honcho_api_key_file=
+      ;;
+    *) echo "Unsupported memory mode: $memory_mode" >&2; return 1 ;;
+  esac
 
   case "$access_mode" in
     private | domain) ;;
@@ -110,6 +134,16 @@ slab_render_installation() {
     printf 'ACME_EMAIL=%s\n' "$acme_email"
     printf 'SLAB_PRIVATE_BIND_IP=%s\n' "$private_bind_ip"
     printf 'SLAB_PRIVATE_PORT=%s\n' "$private_port"
+    printf 'COMPOSE_PROFILES=%s\n' "$compose_profiles"
+    printf 'SLAB_MEMORY_MODE=%s\n' "$memory_mode"
+    printf 'SLAB_MEMORY_PROVIDER=%s\n' "$memory_provider"
+    printf 'SLAB_HONCHO_URL=%s\n' "$honcho_url"
+    printf 'SLAB_HONCHO_WORKSPACE_ID=%s\n' "$honcho_workspace"
+    printf 'SLAB_HONCHO_API_KEY_FILE_IN_CONTAINER=%s\n' "$honcho_api_key_file"
+    printf 'SLAB_MEMORY_MAX_CONTEXT_TOKENS=%s\n' "$memory_context_tokens"
+    printf '%s\n' 'SLAB_HONCHO_IMAGE=ghcr.io/plastic-labs/honcho:v3.1.0@sha256:b73a8015f9e3ee51525e5b5cb238a915aa47de5107593d81b892213322fa369d'
+    printf '%s\n' 'SLAB_HONCHO_DATABASE_IMAGE=pgvector/pgvector:pg15@sha256:a947c45cdc5906a1bc951f20a8709e321256343ee0f251e4ae00b5e7def4e6da'
+    printf '%s\n' 'SLAB_HONCHO_REDIS_IMAGE=redis:8.2@sha256:7d1e4ce8b9395088377ab382d1f6cfdbd13b3690795198a0399ab8d683064d6d'
     slab_render_image_environment "$manifest_path"
   } > "$temporary_environment"
   chmod 0644 "$temporary_environment"

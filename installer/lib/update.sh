@@ -350,6 +350,20 @@ slabctl_update_render_release() {
   acme_email=$(sed -n 's/^ACME_EMAIL=//p' "$SLABCTL_ENVIRONMENT_FILE")
   private_bind_ip=$(sed -n 's/^SLAB_PRIVATE_BIND_IP=//p' "$SLABCTL_ENVIRONMENT_FILE")
   private_port=$(sed -n 's/^SLAB_PRIVATE_PORT=//p' "$SLABCTL_ENVIRONMENT_FILE")
+  SLAB_MEMORY_MODE=$(sed -n 's/^SLAB_MEMORY_MODE=//p' "$SLABCTL_ENVIRONMENT_FILE")
+  SLAB_HONCHO_URL=$(sed -n 's/^SLAB_HONCHO_URL=//p' "$SLABCTL_ENVIRONMENT_FILE")
+  SLAB_HONCHO_WORKSPACE_ID=$(sed -n 's/^SLAB_HONCHO_WORKSPACE_ID=//p' "$SLABCTL_ENVIRONMENT_FILE")
+  SLAB_MEMORY_MAX_CONTEXT_TOKENS=$(sed -n 's/^SLAB_MEMORY_MAX_CONTEXT_TOKENS=//p' "$SLABCTL_ENVIRONMENT_FILE")
+  : "${SLAB_MEMORY_MODE:=disabled}"
+  : "${SLAB_HONCHO_URL:=https://api.honcho.dev}"
+  : "${SLAB_HONCHO_WORKSPACE_ID:=slab}"
+  : "${SLAB_MEMORY_MAX_CONTEXT_TOKENS:=900}"
+  # Legacy installations do not have memory secret files. Create the new
+  # root-private placeholders before Compose validates the target release;
+  # configured values are preserved because secret preparation is idempotent.
+  # shellcheck source=installer/lib/secrets.sh
+  . "$bundle_root/installer/lib/secrets.sh"
+  slab_prepare_secrets "$SLABCTL_INSTALL_DIRECTORY/secrets" || return 1
   # shellcheck source=installer/lib/render.sh
   . "$bundle_root/installer/lib/render.sh"
   slab_render_installation "$bundle_root" "$SLABCTL_INSTALL_DIRECTORY" \

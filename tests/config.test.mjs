@@ -130,3 +130,80 @@ test("rejects private files stored below a writable parent", () => {
     fs.rmSync(directory, { recursive: true, force: true });
   }
 });
+
+test("validates managed and self-hosted memory secret inputs", () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "slab-memory-config-"));
+  const managedConfig = path.join(directory, "managed.conf");
+  const managedSecret = path.join(directory, "honcho-key");
+  const selfHostedConfig = path.join(directory, "self-hosted.conf");
+  const openAiSecret = path.join(directory, "openai-key");
+  fs.writeFileSync(managedSecret, "honcho-test-key\n", { mode: 0o600 });
+  fs.writeFileSync(openAiSecret, "openai-test-key\n", { mode: 0o600 });
+  fs.writeFileSync(
+    managedConfig,
+    [
+      `SLAB_INSTALL_DIRECTORY=${directory}/managed-install`,
+      "SLAB_ACCESS_MODE=private",
+      "SLAB_MEMORY_MODE=managed",
+      "SLAB_HONCHO_URL=https://memory.example.test",
+      "SLAB_HONCHO_WORKSPACE_ID=company-memory",
+      "SLAB_MEMORY_MAX_CONTEXT_TOKENS=800",
+      `SLAB_HONCHO_API_KEY_FILE=${managedSecret}`,
+      "",
+    ].join("\n"),
+    { mode: 0o600 },
+  );
+  fs.writeFileSync(
+    selfHostedConfig,
+    [
+      `SLAB_INSTALL_DIRECTORY=${directory}/self-install`,
+      "SLAB_ACCESS_MODE=private",
+      "SLAB_MEMORY_MODE=self_hosted",
+      `SLAB_HONCHO_OPENAI_API_KEY_FILE=${openAiSecret}`,
+      "",
+    ].join("\n"),
+    { mode: 0o600 },
+  );
+  const environment = {
+    SLAB_CONFIG_OWNER_UID: String(process.getuid()),
+    SLAB_CONFIG_TRUST_ROOT: directory,
+    SLAB_INSTALL_OWNER_UID: String(process.getuid()),
+    SLAB_INSTALL_TRUST_ROOT: directory,
+  };
+  try {
+    for (const [configFile, expected] of [
+      [managedConfig, "managed|https://memory.example.test"],
+      [selfHostedConfig, "self_hosted|http://honcho-api:8000"],
+    ]) {
+      const result = spawnSync(
+        "sh",
+        [
+          "-c",
+          '. "$1"; . "$2"; slab_load_noninteractive_config "$3"; slab_finalize_noninteractive_config; printf "%s|%s" "$SLAB_MEMORY_MODE" "$SLAB_HONCHO_URL"',
+          "memory-config",
+          prompts,
+          config,
+          configFile,
+        ],
+        { encoding: "utf8", env: { ...process.env, ...environment } },
+      );
+      assert.equal(result.status, 0, result.stderr);
+      assert.equal(result.stdout, expected);
+      assert.doesNotMatch(result.stdout + result.stderr, /honcho-test-key|openai-test-key/);
+    }
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("rejects memory modes without their required root-private secret file", () => {
+  const result = run(
+    'SLAB_MEMORY_MODE=managed; SLAB_HONCHO_API_KEY_FILE=; slab_finalize_noninteractive_config',
+    {
+      SLAB_INSTALL_DIRECTORY: "/opt/slab-test",
+      SLAB_ACCESS_MODE: "private",
+    },
+  );
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /SLAB_HONCHO_API_KEY_FILE is required/);
+});
