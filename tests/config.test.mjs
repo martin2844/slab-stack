@@ -197,13 +197,20 @@ test("validates managed and self-hosted memory secret inputs", () => {
 });
 
 test("rejects memory modes without their required root-private secret file", () => {
-  const result = run(
-    'SLAB_MEMORY_MODE=managed; SLAB_HONCHO_API_KEY_FILE=; slab_finalize_noninteractive_config',
-    {
-      SLAB_INSTALL_DIRECTORY: "/opt/slab-test",
-      SLAB_ACCESS_MODE: "private",
-    },
-  );
-  assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /SLAB_HONCHO_API_KEY_FILE is required/);
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "slab-memory-config-"));
+  try {
+    const result = run(
+      'SLAB_MEMORY_MODE=managed; SLAB_HONCHO_API_KEY_FILE=; slab_finalize_noninteractive_config',
+      {
+        SLAB_INSTALL_DIRECTORY: path.join(directory, "installation"),
+        SLAB_INSTALL_OWNER_UID: String(process.getuid()),
+        SLAB_INSTALL_TRUST_ROOT: directory,
+        SLAB_ACCESS_MODE: "private",
+      },
+    );
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /SLAB_HONCHO_API_KEY_FILE is required/);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
 });
