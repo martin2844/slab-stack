@@ -61,13 +61,6 @@ slab_render_installation() {
   honcho_workspace=${SLAB_HONCHO_WORKSPACE_ID:-slab}
   memory_context_tokens=${SLAB_MEMORY_MAX_CONTEXT_TOKENS:-900}
 
-  # The target release renderer is the compatibility seam used by older
-  # slabctl clients. Ensure secrets introduced by this release exist before
-  # Docker Compose evaluates the newly rendered configuration.
-  # shellcheck source=installer/lib/secrets.sh
-  . "$bundle_root/installer/lib/secrets.sh"
-  slab_prepare_secrets "$install_directory/secrets" || return 1
-
   case "$memory_mode" in
     disabled)
       compose_profiles=
@@ -114,6 +107,13 @@ slab_render_installation() {
       return 1
     fi
   done
+
+  # The target release renderer is the compatibility seam used by older
+  # slabctl clients. After all non-mutating validation succeeds, ensure secrets
+  # introduced by this release exist before Docker Compose evaluates it.
+  # shellcheck source=installer/lib/secrets.sh
+  . "$bundle_root/installer/lib/secrets.sh"
+  slab_prepare_secrets "$install_directory/secrets" || return 1
 
   mkdir -p "$install_directory/config"
   chmod 0755 "$install_directory" "$install_directory/config"
