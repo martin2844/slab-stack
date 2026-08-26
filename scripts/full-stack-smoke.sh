@@ -90,6 +90,7 @@ cp "$ROOT/templates/compose.private.yml" "$FIXTURE_DIR/compose.private.yml"
   printf 'SLAB_DOMAIN=\nACME_EMAIL=\n'
   printf 'SLAB_PRIVATE_BIND_IP=127.0.0.1\n'
   printf 'SLAB_PRIVATE_PORT=%s\n' "$PRIVATE_PORT"
+  sed -n '/^SLAB_HONCHO.*_IMAGE=/p' "$ROOT/templates/install.env.example"
   node "$ROOT/scripts/render-image-env.mjs" "$MANIFEST"
 } > "$FIXTURE_DIR/install.env"
 chmod 0600 "$FIXTURE_DIR/install.env"
