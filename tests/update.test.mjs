@@ -558,7 +558,7 @@ test("JSON update check reports a component-by-component signed diff", (t) => {
   );
   const available = JSON.parse(
     fs.readFileSync(
-      path.join(root, "releases/v0.1.2-candidate.35.json"),
+      path.join(root, "releases/v0.1.2-candidate.36.json"),
       "utf8",
     ),
   );
@@ -609,7 +609,7 @@ test("JSON update check fails closed on an interrupted mixed identity", (t) => {
   t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
   const installed = JSON.parse(
     fs.readFileSync(
-      path.join(root, "releases/v0.1.2-candidate.35.json"),
+      path.join(root, "releases/v0.1.2-candidate.36.json"),
       "utf8",
     ),
   );
@@ -1265,7 +1265,7 @@ test("current candidate upgrades stable without declaring unsafe image rollback"
   );
   const candidate = JSON.parse(
     fs.readFileSync(
-      path.join(root, "releases/v0.1.2-candidate.35.json"),
+      path.join(root, "releases/v0.1.2-candidate.36.json"),
       "utf8",
     ),
   );
