@@ -18,7 +18,9 @@ set -eu
 printf '%s\n' "$*" >> "$SLAB_TEST_SYSTEMCTL_CALLS"
 case "$*" in
   "daemon-reload") ;;
-  "enable --now slab.service")
+  "enable --now var-lib-slab\\x2dupdate\\x2dbridge-requests.mount var-lib-slab\\x2dupdate\\x2dbridge-status.mount") ;;
+  "enable --now slab-update-bridge-prepare.service") ;;
+  "enable --now slab.service slab-update-bridge.path slab-update-bridge-sweep.timer")
     SLABCTL_TEST_ROOT=$SLAB_MANAGEMENT_HOST_ROOT \
       "$SLAB_MANAGEMENT_HOST_ROOT/usr/local/bin/slabctl" stack start >/dev/null
     ;;
@@ -106,7 +108,9 @@ SLAB_TEST_SYSTEMCTL_CALLS=$SYSTEMCTL_CALLS \
 
 second_secret_hash=$(sha256sum "$INSTALL_DIR/secrets/session-secret" | awk '{print $1}')
 [ "$first_secret_hash" = "$second_secret_hash" ]
-test "$(grep -c '^enable --now slab.service$' "$SYSTEMCTL_CALLS")" -eq 2
+test "$(grep -c '^enable --now slab.service slab-update-bridge.path slab-update-bridge-sweep.timer$' "$SYSTEMCTL_CALLS")" -eq 2
+test "$(grep -c '^enable --now slab-update-bridge-prepare.service$' "$SYSTEMCTL_CALLS")" -eq 2
+test "$(grep -c '^enable --now var-lib-slab\\x2dupdate\\x2dbridge-requests.mount var-lib-slab\\x2dupdate\\x2dbridge-status.mount$' "$SYSTEMCTL_CALLS")" -eq 2
 
 cookies=$FIXTURE_DIR/cookies
 curl -fsS -c "$cookies" \
