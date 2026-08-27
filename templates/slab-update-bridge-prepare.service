@@ -10,7 +10,8 @@ Before=slab.service slab-update-bridge.path slab-update-bridge.service
 [Service]
 Type=oneshot
 ExecStart=/usr/bin/install -d -o 0 -g 0 -m 0700 /var/lib/slab-update-bridge/requests/.claimed
-ExecStart=/usr/bin/install -d -o 10001 -g 0 -m 0700 /var/lib/slab-update-bridge/requests/.uploads
+ExecStart=/usr/bin/install -d -o 0 -g 0 -m 0700 /var/lib/slab-update-bridge/requests/.uploads
+ExecStart=/usr/bin/chown 10001:0 /var/lib/slab-update-bridge/requests/.uploads
 ExecStart=/usr/bin/install -d -o 0 -g 0 -m 0755 /var/lib/slab-update-bridge/status/requests
 RemainAfterExit=yes
 NoNewPrivileges=yes

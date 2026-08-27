@@ -158,6 +158,11 @@ test("installs the managed systemd unit idempotently", () => {
     assert.match(bridgePath, /requests\/\*\.json/);
     assert.match(bridgePath, /processing\/\*\.json/);
     assert.match(bridgePrepare, /requests\/\.claimed/);
+    assert.match(
+      bridgePrepare,
+      /chown 10001:0 \/var\/lib\/slab-update-bridge\/requests\/\.uploads/,
+    );
+    assert.doesNotMatch(bridgePrepare, /install .* -o 10001 /);
     assert.match(bridgePrepare, /PartOf=var-lib-slab\\x2dupdate/);
     assert.match(bridgeMount, /Options=size=1M,nr_inodes=256/);
     assert.match(statusMount, /Options=size=8M,nr_inodes=4096/);
@@ -314,7 +319,7 @@ test("target renderer mounts the bounded inbox before an older updater starts Co
         `SLABCTL_INSTALL_DIRECTORY=${JSON.stringify(current.installation)}; ` +
         `slab_render_installation ${JSON.stringify(root)} ` +
         `${JSON.stringify(current.installation)} ` +
-        `${JSON.stringify(path.join(root, "releases/v0.1.2-candidate.34.json"))} ` +
+        `${JSON.stringify(path.join(root, "releases/v0.1.2-candidate.35.json"))} ` +
         `private http://127.0.0.1:3009 '' '' 127.0.0.1 3009 0`,
     );
     assert.equal(result.status, 0, result.stderr);
