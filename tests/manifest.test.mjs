@@ -42,6 +42,27 @@ function validate(manifest) {
   }
 }
 
+function validateAtRuntime(manifest) {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "slab-runtime-manifest-"));
+  const filename = path.join(directory, "manifest.json");
+  fs.writeFileSync(filename, JSON.stringify(manifest));
+  try {
+    return spawnSync(
+      "sh",
+      [
+        "-c",
+        '. "$1"; slab_validate_release_manifest "$2"',
+        "runtime-manifest-test",
+        path.join(root, "installer/lib/render.sh"),
+        filename,
+      ],
+      { encoding: "utf8" },
+    );
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+}
+
 test("accepts the complete development release fixture", () => {
   const result = validate(structuredClone(example));
   assert.equal(result.status, 0, result.stderr);
@@ -50,6 +71,8 @@ test("accepts the complete development release fixture", () => {
 test("accepts the immutable candidate release manifest", () => {
   const result = validate(structuredClone(candidate));
   assert.equal(result.status, 0, result.stderr);
+  const runtimeResult = validateAtRuntime(structuredClone(candidate));
+  assert.equal(runtimeResult.status, 0, runtimeResult.stderr);
   assert.equal(candidate.codexVersion, "0.148.0");
   assert.equal(candidate.geminiCliVersion, "0.56.0");
   assert.deepEqual(
@@ -64,6 +87,111 @@ test("rejects a malformed optional Gemini CLI version", () => {
   const result = validate(manifest);
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /geminiCliVersion must be semver/);
+});
+
+test("machine schema declares every release property accepted by validation", () => {
+  const schema = JSON.parse(
+    fs.readFileSync(
+      path.join(root, "contracts/release-manifest.schema.json"),
+      "utf8",
+    ),
+  );
+  assert.deepEqual(
+    Object.keys(candidate).sort(),
+    Object.keys(schema.properties)
+      .filter((key) => candidate[key] !== undefined)
+      .sort(),
+  );
+  assert.ok(schema.properties.channel.enum.includes("drill"));
+  assert.equal(
+    schema.properties.dataCompatibility.properties.volumes.additionalProperties,
+    false,
+  );
+});
+
+test("rejects unknown release and image properties", () => {
+  const release = structuredClone(candidate);
+  release.command = "docker system prune";
+  const rejectedRelease = validate(release);
+  assert.notEqual(rejectedRelease.status, 0);
+  assert.match(rejectedRelease.stderr, /unsupported property/);
+  assert.notEqual(validateAtRuntime(release).status, 0);
+
+  const image = structuredClone(candidate);
+  image.images.runner.mutableTag = "latest";
+  const rejectedImage = validate(image);
+  assert.notEqual(rejectedImage.status, 0);
+  assert.match(rejectedImage.stderr, /runner image contains an unsupported property/);
+  assert.notEqual(validateAtRuntime(image).status, 0);
+});
+
+test("packaging and runtime validators reject unknown nested properties", () => {
+  const mutations = [
+    (manifest) => {
+      manifest.migrationCompatibility.command = "unsafe";
+    },
+    (manifest) => {
+      manifest.dataCompatibility.command = "unsafe";
+    },
+    (manifest) => {
+      manifest.dataCompatibility.volumes.agents_data.command = "unsafe";
+    },
+    (manifest) => {
+      manifest.drill = {
+        expectedOutcome: "automatic_rollback",
+        fault: "agents_image_substituted_with_runner",
+        command: "unsafe",
+      };
+    },
+  ];
+  for (const mutate of mutations) {
+    const manifest = structuredClone(candidate);
+    mutate(manifest);
+    assert.notEqual(validate(manifest).status, 0);
+    assert.notEqual(validateAtRuntime(manifest).status, 0);
+  }
+});
+
+test("packaging and runtime validators enforce the exact platform set", () => {
+  for (const platforms of [
+    ["linux/amd64", "linux/arm64", "linux/s390x"],
+    ["linux/amd64", "linux/amd64", "linux/arm64"],
+  ]) {
+    const manifest = structuredClone(candidate);
+    manifest.images.agents.platforms = platforms;
+    assert.notEqual(validate(manifest).status, 0);
+    assert.notEqual(validateAtRuntime(manifest).status, 0);
+  }
+});
+
+test("validates optional release presentation metadata", () => {
+  const manifest = structuredClone(candidate);
+  manifest.releaseNotesUrl = "https://github.com/martin2844/slab-stack/releases/tag/v0.1.2";
+  manifest.severity = "security";
+  assert.equal(validate(manifest).status, 0);
+
+  manifest.releaseNotesUrl = "http://internal.invalid/release";
+  assert.match(validate(manifest).stderr, /bounded HTTPS URL/);
+  for (const invalidUrl of [
+    "https://",
+    "https://user:password@example.invalid/release",
+    "https://example.invalid/release notes",
+    "https://%",
+    "https://[invalid",
+    "https://example.invalid:bad/release",
+    "https://example.invalid:99999/release",
+    "https://example.invalid/%ZZ",
+    "https://999.999.999.999/release",
+    "https://256.1.1.1/release",
+    "https://example.123/release",
+  ]) {
+    manifest.releaseNotesUrl = invalidUrl;
+    assert.match(validate(manifest).stderr, /bounded HTTPS URL/);
+    assert.notEqual(validateAtRuntime(manifest).status, 0);
+  }
+  manifest.releaseNotesUrl = "https://example.invalid/release";
+  manifest.severity = "urgent";
+  assert.match(validate(manifest).stderr, /severity is invalid/);
 });
 
 test("accepts a release-engineering drill manifest", () => {
@@ -87,7 +215,7 @@ test("rejects a release missing one service image", () => {
   delete manifest.images.runner;
   const result = validate(manifest);
   assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /missing image: runner/);
+  assert.match(result.stderr, /images must describe exactly/);
 });
 
 test("rejects a mutable or malformed image digest", () => {
@@ -112,6 +240,19 @@ test("rejects mutable image tags", () => {
   const result = validate(manifest);
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /runner image ref is invalid/);
+  assert.notEqual(validateAtRuntime(manifest).status, 0);
+});
+
+test("packaging and runtime validators enforce timestamp and version bounds", () => {
+  const impossibleDate = structuredClone(candidate);
+  impossibleDate.releasedAt = "2026-99-99T99:99:99Z";
+  assert.notEqual(validate(impossibleDate).status, 0);
+  assert.notEqual(validateAtRuntime(impossibleDate).status, 0);
+
+  const longCodexVersion = structuredClone(candidate);
+  longCodexVersion.codexVersion = "x".repeat(101);
+  assert.notEqual(validate(longCodexVersion).status, 0);
+  assert.notEqual(validateAtRuntime(longCodexVersion).status, 0);
 });
 
 test("renders every candidate image as an immutable tag and digest pair", () => {

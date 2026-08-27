@@ -37,7 +37,7 @@ slabctl_release_download() {
 
 slabctl_release_validate_version() {
   printf '%s\n' "$1" |
-    grep -Eq '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z][0-9A-Za-z.-]*)?$' || {
+    grep -Eq '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-(0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)(\.(0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$' || {
       slabctl_error "invalid release version: $1"
       return 1
     }
@@ -66,7 +66,7 @@ slabctl_release_validate_channel() {
     .schemaVersion == 1 and
     .channel == $channel and
     (.stackVersion | type == "string" and
-      test("^[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?$")) and
+      test("^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)(?:\\.(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$")) and
     (.manifestUrl | type == "string" and test("^https://")) and
     (.manifestSha256 | type == "string" and test("^[a-f0-9]{64}$"))
   ' "$channel_file" >/dev/null 2>&1 || {

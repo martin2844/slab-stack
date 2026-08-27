@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://slab.ar/schemas/update-attempt-v1.json",
+  "title": "Slab stack update attempt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "status",
+    "action",
+    "channel",
+    "expectedTarget",
+    "observedTarget",
+    "message",
+    "attemptedAt"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "status": { "const": "TARGET_MISMATCH" },
+    "action": { "enum": ["check", "apply"] },
+    "channel": { "enum": ["stable", "candidate", "drill"] },
+    "expectedTarget": { "$ref": "release-manifest.schema.json#/$defs/semver" },
+    "observedTarget": { "$ref": "release-manifest.schema.json#/$defs/semver" },
+    "message": { "type": "string", "minLength": 1, "maxLength": 500 },
+    "attemptedAt": { "type": "string", "format": "date-time" }
+  }
+}

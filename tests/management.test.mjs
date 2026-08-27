@@ -63,6 +63,55 @@ function assertRecoveredTarget(hostRoot, relative, expected, message) {
   assert.deepEqual(actual, expected, message);
 }
 
+function prepareSlabctlInvocationFixture(directory) {
+  const hostRoot = path.join(directory, "host");
+  const installDirectory = path.join(directory, "slab");
+  const fakeBin = path.join(directory, "fake-bin");
+  fs.mkdirSync(fakeBin);
+  fs.writeFileSync(
+    path.join(fakeBin, "stat"),
+    `#!/bin/sh
+case "\${2:-}" in
+  %u) printf '%s\\n' '${process.getuid()}' ;;
+  %a) printf '%s\\n' '644' ;;
+  *) exit 2 ;;
+esac
+`,
+    { mode: 0o755 },
+  );
+  fs.writeFileSync(path.join(fakeBin, "flock"), "#!/bin/sh\nexit 0\n", {
+    mode: 0o755,
+  });
+  const fixturePath = `${fakeBin}:${process.env.PATH}`;
+  const installed = install(hostRoot, installDirectory, { PATH: fixturePath });
+  assert.equal(installed.status, 0, installed.stderr);
+  const config = path.join(installDirectory, "config");
+  fs.mkdirSync(config, { recursive: true });
+  fs.writeFileSync(
+    path.join(config, "install-state.json"),
+    `${JSON.stringify({ projectName: "slab" })}\n`,
+  );
+  fs.writeFileSync(path.join(config, "access-mode"), "private\n");
+  fs.writeFileSync(path.join(config, "install.env"), "SLAB_PUBLIC_URL=http://localhost\n");
+  fs.writeFileSync(path.join(installDirectory, "compose.yml"), "services: {}\n");
+  fs.writeFileSync(
+    path.join(installDirectory, "compose.private.yml"),
+    "services: {}\n",
+  );
+  fs.writeFileSync(
+    path.join(installDirectory, "release-manifest.json"),
+    `${JSON.stringify({ channel: "candidate" })}\n`,
+  );
+  return {
+    binary: path.join(hostRoot, "usr/local/bin/slabctl"),
+    env: {
+      ...process.env,
+      PATH: fixturePath,
+      SLABCTL_TEST_ROOT: hostRoot,
+    },
+  };
+}
+
 test("installs slabctl idempotently and pins it to one installation", () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "slab-management-"));
   const hostRoot = path.join(directory, "host");
@@ -133,6 +182,35 @@ test("installs slabctl idempotently and pins it to one installation", () => {
     fs.rmSync(directory, { recursive: true, force: true });
   }
 });
+
+test(
+  "real slabctl parser rejects flags that do not belong to an update action",
+  { skip: process.getuid() === 0 },
+  () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "slab-cli-options-"));
+    try {
+      const fixture = prepareSlabctlInvocationFixture(directory);
+      for (const args of [
+        ["update", "rollback", "--json", "--yes"],
+        ["update", "rollback", "--target", "1.2.3", "--yes"],
+        ["update", "rollback", "--channel", "stable", "--yes"],
+        ["update", "recover-maintenance", "--json"],
+        ["update", "recover-maintenance", "--target", "1.2.3"],
+        ["update", "recover-maintenance", "--channel", "stable"],
+        ["update", "recover-maintenance", "--yes"],
+      ]) {
+        const result = spawnSync(fixture.binary, args, {
+          encoding: "utf8",
+          env: fixture.env,
+        });
+        assert.equal(result.status, 2, `${args.join(" ")}\n${result.stderr}`);
+        assert.match(result.stderr, /Usage:/);
+      }
+    } finally {
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
+  },
+);
 
 test("publishes the verified target version for both stack and manager identity", () => {
   const directory = fs.mkdtempSync(

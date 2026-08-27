@@ -4,20 +4,72 @@ slab_validate_release_manifest() {
   manifest_path=$1
   jq -e '
     . as $manifest |
+    def exact_keys($expected):
+      type == "object" and ((keys | sort) == ($expected | sort));
+    def semver:
+      type == "string" and
+      test("^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)(?:\\.(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$");
+    def bounded_https_url:
+      type == "string" and length <= 500 and
+      (test("[[:space:][:cntrl:]]") | not) and
+      (test("%(?![0-9A-Fa-f]{2})") | not) and
+      ((try capture("^https://(?<host>[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*\\.[A-Za-z](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)(?::(?<port>[0-9]{1,5}))?(?:[/?#][^\\s]*)?$") catch null) as $url |
+        $url != null and
+        (($url.port // "0") | tonumber) <= 65535);
+    (($manifest | keys) - [
+      "schemaVersion", "stackVersion", "channel", "releasedAt",
+      "minimumSlabctlVersion", "images", "codexVersion",
+      "geminiCliVersion", "releaseNotesUrl", "severity",
+      "drill", "migrationCompatibility", "dataCompatibility"
+    ] | length == 0) and
     .schemaVersion == 1 and
-    (.stackVersion | test("^[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?$")) and
+    (.stackVersion | semver) and
     (.channel | IN("development", "candidate", "stable", "drill")) and
-    (.codexVersion | type == "string" and length > 0) and
-    ((.geminiCliVersion == null) or
-      (.geminiCliVersion | test("^[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?$"))) and
-    (.images | type == "object") and
+    (.releasedAt | type == "string" and
+      test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$") and
+      fromdateiso8601? != null) and
+    (.minimumSlabctlVersion | semver) and
+    (.codexVersion | type == "string" and length > 0 and length <= 100) and
+    ((has("geminiCliVersion") | not) or (.geminiCliVersion | semver)) and
+    ((has("releaseNotesUrl") | not) or (.releaseNotesUrl | bounded_https_url)) and
+    ((has("severity") | not) or
+      (.severity | IN("routine", "security", "critical"))) and
+    ((has("drill") | not) or
+      (.drill |
+        exact_keys(["expectedOutcome", "fault"]) and
+        .expectedOutcome == "automatic_rollback" and
+        .fault == "agents_image_substituted_with_runner")) and
+    (.images | exact_keys(["agents", "work", "docs", "email", "runner"])) and
     (["agents", "work", "docs", "email", "runner"] | all(
       . as $service |
-      ($manifest.images[$service].ref | test("^ghcr\\.io/[a-z0-9_.-]+/[a-z0-9_.-]+:[A-Za-z0-9_.-]+$")) and
+      ($manifest.images[$service] | exact_keys(["ref", "digest", "platforms"])) and
+      ($manifest.images[$service].ref | test("^ghcr\\.io/[a-z0-9_.-]+/[a-z0-9_.-]+:(?:v?[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?|candidate-[a-f0-9]{40})$")) and
       ($manifest.images[$service].digest | test("^sha256:[a-f0-9]{64}$")) and
-      ($manifest.images[$service].platforms | index("linux/amd64") != null) and
-      ($manifest.images[$service].platforms | index("linux/arm64") != null)
-    ))
+      ($manifest.images[$service].platforms |
+        type == "array" and length == 2 and
+        (unique | length == 2) and
+        all(. == "linux/amd64" or . == "linux/arm64"))
+    )) and
+    (.migrationCompatibility |
+      exact_keys(["minimumUpgradeStack", "minimumRollbackStack"]) and
+      (.minimumUpgradeStack | semver) and
+      (.minimumRollbackStack | semver)) and
+    ((has("dataCompatibility") | not) or
+      (.dataCompatibility |
+        exact_keys(["schemaVersion", "volumes"]) and
+        .schemaVersion == 1 and
+        (.volumes |
+          exact_keys(["agents_data", "work_data", "docs_data", "email_data"]) and
+          (["agents_data", "work_data", "docs_data", "email_data"] | all(
+            . as $volume |
+            ($manifest.dataCompatibility.volumes[$volume] |
+              exact_keys(["migrations"]) and
+              (.migrations |
+                type == "array" and length > 0 and
+                . as $migrations |
+                ($migrations | unique | length) == ($migrations | length) and
+                all(type == "string" and length > 0)))
+          )))))
   ' "$manifest_path" >/dev/null 2>&1 || {
     echo "Invalid release manifest: $manifest_path" >&2
     return 1

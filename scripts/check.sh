@@ -41,6 +41,8 @@ jq -e '.properties.format.const == "slab-backup-v2" and .properties.schemaVersio
   "$ROOT/contracts/backup-manifest.schema.json" >/dev/null
 jq -e '.properties.schemaVersion.const == 1 and (.properties.status.enum | index("RECOVERY_REQUIRED") != null)' \
   "$ROOT/contracts/update-state.schema.json" >/dev/null
+jq -e '.properties.schemaVersion.const == 1 and .properties.status.const == "TARGET_MISMATCH"' \
+  "$ROOT/contracts/update-attempt.schema.json" >/dev/null
 
 for manifest in "$ROOT"/releases/*.json; do
   node "$ROOT/scripts/validate-manifest.mjs" "$manifest" >/dev/null

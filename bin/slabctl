@@ -220,7 +220,7 @@ do
 done
 SLABCTL_MANAGER_VERSION=$(sed -n '1p' "$effective_manager_version_file")
 printf '%s\n' "$SLABCTL_MANAGER_VERSION" |
-  grep -Eq '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z][0-9A-Za-z.-]*)?$' || {
+  grep -Eq '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-(0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)(\.(0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$' || {
     echo "slabctl: management version is invalid" >&2
     exit 1
   }
@@ -264,8 +264,8 @@ Usage:
   sudo slabctl backup [--encrypt-with IDENTITY] [DESTINATION]
   sudo slabctl backup verify [--identity IDENTITY] ARCHIVE
   sudo slabctl restore [--dry-run] [--yes] [--identity IDENTITY] ARCHIVE
-  sudo slabctl update check [--channel stable|candidate]
-  sudo slabctl update apply [--channel stable|candidate] [--yes]
+  sudo slabctl update check [--channel stable|candidate] [--target VERSION] [--json]
+  sudo slabctl update apply [--channel stable|candidate] [--target VERSION] [--yes]
   sudo slabctl update rollback [--yes]
   sudo slabctl update recover-maintenance
   sudo slabctl doctor [--json]
@@ -401,26 +401,42 @@ case "${1:-}" in
     update_action=${2:-check}
     shift 2 2>/dev/null || shift "$#"
     update_channel=$(jq -r '.channel' "$SLABCTL_INSTALL_DIRECTORY/release-manifest.json")
+    update_channel_explicit=0
     update_confirmed=0
+    update_output_format=text
+    update_target=
     while [ "$#" -gt 0 ]; do
       case "$1" in
         --channel)
           [ "$#" -ge 2 ] || { slabctl_usage >&2; exit 2; }
           update_channel=$2
+          update_channel_explicit=1
           shift
           ;;
         --yes) update_confirmed=1 ;;
+        --json) update_output_format=json ;;
+        --target)
+          [ "$#" -ge 2 ] || { slabctl_usage >&2; exit 2; }
+          update_target=$2
+          slabctl_release_validate_version "$update_target" || exit 2
+          shift
+          ;;
         *) slabctl_usage >&2; exit 2 ;;
       esac
       shift
     done
+    slabctl_update_validate_cli_options "$update_action" \
+      "$update_channel_explicit" "$update_confirmed" \
+      "$update_output_format" "$update_target" || {
+        slabctl_usage >&2
+        exit 2
+      }
     slabctl_release_validate_requested_channel "$update_channel" || exit 2
     case "$update_action" in
-      check) [ "$update_confirmed" -eq 0 ] || { slabctl_usage >&2; exit 2; }; slabctl_update_check "$update_channel" ;;
-      apply) slabctl_update_apply "$update_channel" "$update_confirmed" ;;
+      check) slabctl_update_check "$update_channel" "$update_output_format" "$update_target" ;;
+      apply) slabctl_update_apply "$update_channel" "$update_confirmed" "$update_target" ;;
       rollback) slabctl_update_rollback "$update_confirmed" ;;
       recover-maintenance)
-        [ "$update_confirmed" -eq 0 ] || { slabctl_usage >&2; exit 2; }
         slabctl_update_recover_maintenance
         slabctl_complete_management_transition
         ;;

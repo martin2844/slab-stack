@@ -25,6 +25,7 @@
         "APPLYING",
         "UPDATED",
         "FAILED",
+        "CANCELLED",
         "ROLLED_BACK",
         "ROLLBACK_FAILED",
         "RECOVERY_REQUIRED"
@@ -32,7 +33,7 @@
     },
     "fromVersion": { "type": "string" },
     "toVersion": { "type": "string" },
-    "channel": { "enum": ["stable", "candidate"] },
+    "channel": { "enum": ["stable", "candidate", "drill"] },
     "message": { "type": "string", "minLength": 1, "maxLength": 500 },
     "backupPath": { "type": ["string", "null"] },
     "recoveryDirectory": { "type": ["string", "null"] },

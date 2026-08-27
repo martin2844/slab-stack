@@ -285,7 +285,10 @@ function updateFixture(
     failMaintenanceOff = false,
     failManagementInstall = false,
     killManagementInstall = false,
+    failBackup = false,
     rollbackCompatible = true,
+    expectedTarget = "",
+    managerVersion = "0.1.0-candidate.10",
   } = {},
 ) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "slab-update-"));
@@ -304,6 +307,10 @@ function updateFixture(
   ]) {
     fs.writeFileSync(path.join(install, relative), `${relative}-old\n`);
   }
+  fs.writeFileSync(
+    path.join(install, "release-manifest.json"),
+    `${JSON.stringify({ stackVersion: "0.1.0-candidate.9" })}\n`,
+  );
   fs.writeFileSync(path.join(install, "VERSION"), "0.1.0-candidate.9\n");
   fs.writeFileSync(
     path.join(config, "install.env"),
@@ -343,7 +350,7 @@ SLABCTL_STATE_FILE="$2/config/install-state.json"
 SLABCTL_ACCESS_MODE=private
 SLABCTL_ENVIRONMENT_FILE="$2/config/install.env"
 SLABCTL_UPDATE_BACKUP_DIRECTORY="$3"
-SLABCTL_MANAGER_VERSION=0.1.0-candidate.10
+SLABCTL_MANAGER_VERSION=${managerVersion}
 release_public_key_file="$2/public.pem"
 SLAB_RELEASE_VERSION=0.1.0-candidate.10
 SLAB_RELEASE_BUNDLE_ROOT="$4"
@@ -356,7 +363,11 @@ slabctl_update_agents_database() {
   ${failMaintenanceOff ? '[ "$1" != maintenance-off ] || return 1' : ":"}
   [ "$1" = active-count ] && printf 0 || :
 }
-slabctl_backup_create() { mkdir -p "$(dirname -- "$1")"; : > "$1"; }
+slabctl_backup_create() {
+  mkdir -p "$(dirname -- "$1")"
+  : > "$1"
+  ${failBackup ? "return 1" : ":"}
+}
 slabctl_update_render_release() {
   for relative in compose.yml compose.private.yml compose.domain.yml Caddyfile release-manifest.json config/install.env config/access-mode; do
     printf 'target-release:%s\\n' "$relative" > "$SLABCTL_INSTALL_DIRECTORY/$relative"
@@ -374,7 +385,7 @@ slabctl_update_install_management() {
   ${killManagementInstall ? "sh -c 'kill -KILL \"$PPID\"'" : ":"}
   ${failManagementInstall ? "return 1" : ":"}
 }
-slabctl_update_apply candidate 1
+slabctl_update_apply candidate 1 "${expectedTarget}"
 `;
   return {
     args: [
@@ -393,6 +404,31 @@ slabctl_update_apply candidate 1
     composeCalls: path.join(directory, "compose-calls.txt"),
     operations: path.join(directory, "operations.txt"),
   };
+}
+
+function stagePreviousRelease(fixture) {
+  const recoveryDirectory = path.join(
+    fixture.install,
+    "config/update-recovery/previous",
+  );
+  fs.mkdirSync(path.join(recoveryDirectory, "config"), { recursive: true });
+  for (const relative of [
+    "compose.yml",
+    "compose.private.yml",
+    "compose.domain.yml",
+    "Caddyfile",
+    "release-manifest.json",
+    "VERSION",
+    "config/install.env",
+    "config/access-mode",
+    "config/install-state.json",
+  ]) {
+    fs.copyFileSync(
+      path.join(fixture.install, relative),
+      path.join(recoveryDirectory, relative),
+    );
+  }
+  return recoveryDirectory;
 }
 
 test("update apply records backup, release identity, and terminal success", (t) => {
@@ -420,6 +456,206 @@ test("update apply records backup, release identity, and terminal success", (t) 
       operations.lastIndexOf("agents:maintenance-off"),
     operations,
   );
+});
+
+test("update apply rejects a channel race without erasing rollback state", (t) => {
+  const fixture = updateFixture(t, { expectedTarget: "0.1.0-candidate.9" });
+  const statePath = path.join(
+    fixture.install,
+    "config/update-state.json",
+  );
+  const previousState = {
+    schemaVersion: 1,
+    status: "UPDATED",
+    fromVersion: "0.1.0-candidate.8",
+    toVersion: "0.1.0-candidate.9",
+    channel: "candidate",
+    message: "Previous successful update.",
+    backupPath: "/var/backups/slab/previous.tar.gz",
+    recoveryDirectory: "/var/lib/slab/config/update-recovery/previous",
+    rollbackCompatible: true,
+    updatedAt: "2026-08-27T00:00:00Z",
+  };
+  fs.writeFileSync(statePath, `${JSON.stringify(previousState)}\n`);
+  const result = command("sh", fixture.args);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /signed channel target changed/);
+  assert.equal(fs.existsSync(fixture.operations), false);
+  assert.deepEqual(JSON.parse(fs.readFileSync(statePath, "utf8")), previousState);
+  const attemptPath = path.join(
+    fixture.install,
+    "config/update-attempt.json",
+  );
+  const attempt = JSON.parse(fs.readFileSync(attemptPath, "utf8"));
+  assert.equal(attempt.status, "TARGET_MISMATCH");
+  assert.equal(attempt.action, "apply");
+  assert.equal(attempt.channel, "candidate");
+  assert.equal(attempt.expectedTarget, "0.1.0-candidate.9");
+  assert.equal(attempt.observedTarget, "0.1.0-candidate.10");
+  assert.equal(fs.statSync(attemptPath).mode & 0o777, 0o600);
+});
+
+test("non-mutating update preflight failures preserve the rollback ledger", (t) => {
+  const fixture = updateFixture(t, { managerVersion: "0.1.0-candidate.9" });
+  const statePath = path.join(fixture.install, "config/update-state.json");
+  const previousState = {
+    schemaVersion: 1,
+    status: "UPDATED",
+    fromVersion: "0.1.0-candidate.8",
+    toVersion: "0.1.0-candidate.9",
+    channel: "candidate",
+    message: "Previous successful update.",
+    backupPath: "/var/backups/slab/previous.tar.gz",
+    recoveryDirectory: "/var/lib/slab/config/update-recovery/previous",
+    rollbackCompatible: true,
+    updatedAt: "2026-08-27T00:00:00Z",
+  };
+  fs.writeFileSync(statePath, `${JSON.stringify(previousState)}\n`);
+  const result = command("sh", fixture.args);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /requires slabctl/);
+  assert.equal(fs.existsSync(fixture.operations), false);
+  assert.deepEqual(JSON.parse(fs.readFileSync(statePath, "utf8")), previousState);
+});
+
+test("JSON update check reports a component-by-component signed diff", (t) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "slab-update-check-"));
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const installed = JSON.parse(
+    fs.readFileSync(path.join(root, "releases/v0.1.1.json"), "utf8"),
+  );
+  const available = JSON.parse(
+    fs.readFileSync(
+      path.join(root, "releases/v0.1.2-candidate.32.json"),
+      "utf8",
+    ),
+  );
+  fs.writeFileSync(
+    path.join(directory, "release-manifest.json"),
+    `${JSON.stringify(installed)}\n`,
+  );
+  const target = path.join(directory, "target.json");
+  fs.writeFileSync(target, `${JSON.stringify(available)}\n`);
+  const script = [
+    '. "$1"',
+    'slabctl_error() { echo "slabctl: $*" >&2; return 1; }',
+    'SLABCTL_INSTALL_DIRECTORY="$2"',
+    'SLAB_RELEASE_MANIFEST="$3"',
+    'SLAB_RELEASE_VERSION="$4"',
+    'slabctl_update_check_json "$5" candidate',
+  ].join("; ");
+  const result = command("sh", [
+    "-c",
+    script,
+    "update-json-test",
+    path.join(root, "installer/lib/update.sh"),
+    directory,
+    target,
+    available.stackVersion,
+    installed.stackVersion,
+  ]);
+  assert.equal(result.status, 0, result.stderr);
+  const payload = JSON.parse(result.stdout);
+  assert.equal(payload.status, "update_available");
+  assert.equal(payload.release.rollbackCompatibleFromInstalled, false);
+  assert.deepEqual(
+    payload.components.map(({ id, status }) => [id, status]),
+    [
+      ["agents", "update_available"],
+      ["work", "up_to_date"],
+      ["docs", "up_to_date"],
+      ["email", "update_available"],
+      ["runner", "update_available"],
+    ],
+  );
+  assert.equal(payload.components[0].installed.revision.length, 40);
+  assert.equal(payload.components[0].available.revision.length, 40);
+});
+
+test("JSON update check fails closed on an interrupted mixed identity", (t) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "slab-update-check-"));
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const installed = JSON.parse(
+    fs.readFileSync(
+      path.join(root, "releases/v0.1.2-candidate.32.json"),
+      "utf8",
+    ),
+  );
+  fs.mkdirSync(path.join(directory, "config"));
+  fs.writeFileSync(
+    path.join(directory, "release-manifest.json"),
+    `${JSON.stringify(installed)}\n`,
+  );
+  fs.writeFileSync(
+    path.join(directory, "config/update-state.json"),
+    `${JSON.stringify({ status: "APPLYING" })}\n`,
+  );
+  const target = path.join(directory, "target.json");
+  fs.writeFileSync(target, `${JSON.stringify(installed)}\n`);
+  const script = [
+    '. "$1"',
+    'slabctl_error() { echo "slabctl: $*" >&2; return 1; }',
+    'SLABCTL_INSTALL_DIRECTORY="$2"',
+    'SLAB_RELEASE_MANIFEST="$3"',
+    'SLAB_RELEASE_VERSION="$4"',
+    'slabctl_update_check_json "$5" candidate',
+  ].join("; ");
+  const result = command("sh", [
+    "-c",
+    script,
+    "update-json-recovery-test",
+    path.join(root, "installer/lib/update.sh"),
+    directory,
+    target,
+    installed.stackVersion,
+    "0.1.1",
+  ]);
+  assert.equal(result.status, 0, result.stderr);
+  const payload = JSON.parse(result.stdout);
+  assert.equal(payload.status, "recovery_required");
+  assert.match(payload.recoveryReason, /disagree|requires recovery/i);
+  assert.equal(
+    payload.components.every(({ status }) => status === "recovery_required"),
+    true,
+  );
+});
+
+test("JSON update check reports equal SemVer build precedence truthfully", (t) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "slab-update-build-"));
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const installed = JSON.parse(
+    fs.readFileSync(path.join(root, "releases/v0.1.1.json"), "utf8"),
+  );
+  installed.stackVersion = "1.0.0+build.1";
+  const available = structuredClone(installed);
+  available.stackVersion = "1.0.0+build.2";
+  available.migrationCompatibility.minimumRollbackStack = "1.0.0";
+  fs.mkdirSync(path.join(directory, "config"));
+  fs.writeFileSync(
+    path.join(directory, "release-manifest.json"),
+    `${JSON.stringify(installed)}\n`,
+  );
+  const target = path.join(directory, "target.json");
+  fs.writeFileSync(target, `${JSON.stringify(available)}\n`);
+  const result = command("sh", [
+    "-c",
+    [
+      '. "$1"',
+      'slabctl_error() { echo "slabctl: $*" >&2; return 1; }',
+      'SLABCTL_INSTALL_DIRECTORY="$2"',
+      'SLAB_RELEASE_MANIFEST="$3"',
+      'SLAB_RELEASE_VERSION="$4"',
+      'slabctl_update_check_json "$5" stable',
+    ].join("; "),
+    "update-json-build-test",
+    path.join(root, "installer/lib/update.sh"),
+    directory,
+    target,
+    available.stackVersion,
+    installed.stackVersion,
+  ]);
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(JSON.parse(result.stdout).status, "channel_equivalent");
 });
 
 test("early update phases persist null artifacts instead of an empty ledger", (t) => {
@@ -548,8 +784,84 @@ test("automatic rollback does not claim recovery while maintenance remains enabl
   assert.match(recovery.stdout, /maintenance cleared/);
 });
 
-test("an interrupted APPLYING state can be reconciled against the installed release", (t) => {
+test("a pre-mutation maintenance failure remains recoverable", (t) => {
+  const fixture = updateFixture(t, {
+    failBackup: true,
+    failMaintenanceOff: true,
+  });
+  const result = command("sh", fixture.args);
+  assert.notEqual(result.status, 0);
+  const statePath = path.join(fixture.install, "config/update-state.json");
+  const failedState = JSON.parse(fs.readFileSync(statePath, "utf8"));
+  assert.equal(failedState.status, "RECOVERY_REQUIRED");
+  assert.equal(failedState.recoveryDirectory, null);
+
+  const recovery = command("sh", [
+    "-c",
+    [
+      'set -eu; . "$1"',
+      'slabctl_error() { echo "slabctl: $*" >&2; return 1; }',
+      'SLABCTL_INSTALL_DIRECTORY="$2"',
+      "slabctl_compose() { :; }",
+      "slabctl_wait_for_healthy_stack() { :; }",
+      "slabctl_update_functional_smoke() { :; }",
+      'slabctl_update_agents_database() { [ "$1" = maintenance-off ]; }',
+      "slabctl_update_recover_maintenance",
+    ].join("; "),
+    "pre-mutation-maintenance-recovery-test",
+    path.join(root, "installer/lib/update.sh"),
+    fixture.install,
+  ]);
+  assert.equal(recovery.status, 0, recovery.stderr);
+  assert.equal(JSON.parse(fs.readFileSync(statePath, "utf8")).status, "CANCELLED");
+});
+
+test("interrupted pre-mutation states can clear maintenance", (t) => {
+  for (const status of ["DRAINING", "BACKING_UP", "FAILED"]) {
+    const fixture = updateFixture(t);
+    const statePath = path.join(fixture.install, "config/update-state.json");
+    fs.writeFileSync(
+      statePath,
+      `${JSON.stringify({
+        schemaVersion: 1,
+        status,
+        fromVersion: "0.1.0-candidate.9",
+        toVersion: "0.1.0-candidate.10",
+        channel: "candidate",
+        message: "Interrupted before mutation.",
+        backupPath: null,
+        recoveryDirectory: null,
+        rollbackCompatible: true,
+        updatedAt: "2026-08-27T00:00:00Z",
+      })}\n`,
+    );
+    const recovery = command("sh", [
+      "-c",
+      [
+        'set -eu; . "$1"',
+        'slabctl_error() { echo "slabctl: $*" >&2; return 1; }',
+        'SLABCTL_INSTALL_DIRECTORY="$2"',
+        "slabctl_compose() { :; }",
+        "slabctl_wait_for_healthy_stack() { :; }",
+        "slabctl_update_functional_smoke() { :; }",
+        'slabctl_update_agents_database() { [ "$1" = maintenance-off ]; }',
+        "slabctl_update_recover_maintenance",
+      ].join("; "),
+      "pre-mutation-state-recovery-test",
+      path.join(root, "installer/lib/update.sh"),
+      fixture.install,
+    ]);
+    assert.equal(recovery.status, 0, `${status}: ${recovery.stderr}`);
+    assert.equal(
+      JSON.parse(fs.readFileSync(statePath, "utf8")).status,
+      "CANCELLED",
+    );
+  }
+});
+
+test("a pre-environment-swap interruption restores the staged prior generation", (t) => {
   const fixture = updateFixture(t);
+  const recoveryDirectory = stagePreviousRelease(fixture);
   fs.writeFileSync(
     path.join(fixture.install, "VERSION"),
     "0.1.0-candidate.9\n",
@@ -568,7 +880,7 @@ test("an interrupted APPLYING state can be reconciled against the installed rele
       channel: "candidate",
       message: "Installing management files.",
       backupPath: "/var/backups/slab/pre-update.tar.gz",
-      recoveryDirectory: "/var/lib/slab/config/update-recovery/previous",
+      recoveryDirectory,
       rollbackCompatible: true,
     })}\n`,
   );
@@ -584,7 +896,7 @@ test("an interrupted APPLYING state can be reconciled against the installed rele
       'SLABCTL_INSTALL_DIRECTORY="$2"',
       'SLABCTL_STATE_FILE="$2/config/install-state.json"',
       'OPERATIONS="$3"',
-      "slabctl_compose() { :; }",
+      'slabctl_compose() { printf "compose:%s\\n" "$*" >> "$OPERATIONS"; }',
       "slabctl_wait_for_healthy_stack() { :; }",
       "slabctl_update_functional_smoke() { :; }",
       'slabctl_update_agents_database() { printf "%s\\n" "$1" >> "$OPERATIONS"; }',
@@ -602,13 +914,182 @@ test("an interrupted APPLYING state can be reconciled against the installed rele
       "utf8",
     ),
   );
-  assert.equal(recoveredState.status, "UPDATED");
-  assert.match(recoveredState.message, /interrupted update/i);
+  assert.equal(recoveredState.status, "ROLLED_BACK");
+  assert.match(recoveredState.message, /staged previous release/i);
   assert.equal(
     fs.readFileSync(path.join(fixture.install, "VERSION"), "utf8").trim(),
-    "0.1.0-candidate.10",
+    "0.1.0-candidate.9",
   );
-  assert.equal(fs.readFileSync(operations, "utf8").trim(), "maintenance-off");
+  assert.deepEqual(fs.readFileSync(operations, "utf8").trim().split("\n"), [
+    "compose:config --quiet",
+    "compose:pull",
+    "compose:up -d --remove-orphans",
+    "maintenance-off",
+  ]);
+});
+
+test("a pre-management-install interruption restores the staged prior generation", (t) => {
+  const fixture = updateFixture(t);
+  const originalEnvironment = fs.readFileSync(
+    path.join(fixture.install, "config/install.env"),
+    "utf8",
+  );
+  const recoveryDirectory = stagePreviousRelease(fixture);
+  fs.writeFileSync(
+    path.join(fixture.install, "release-manifest.json"),
+    `${JSON.stringify({ stackVersion: "0.1.0-candidate.10" })}\n`,
+  );
+  fs.writeFileSync(
+    path.join(fixture.install, "config/install.env"),
+    "SLAB_AGENTS_IMAGE=ghcr.io/example/agents:candidate-target@sha256:target\n",
+  );
+  const statePath = path.join(fixture.install, "config/update-state.json");
+  fs.writeFileSync(
+    statePath,
+    `${JSON.stringify({
+      schemaVersion: 1,
+      status: "APPLYING",
+      fromVersion: "0.1.0-candidate.9",
+      toVersion: "0.1.0-candidate.10",
+      channel: "candidate",
+      message: "Interrupted before management installation.",
+      backupPath: "/var/backups/slab/pre-update.tar.gz",
+      recoveryDirectory,
+      rollbackCompatible: true,
+    })}\n`,
+  );
+  const recovery = command("sh", [
+    "-c",
+    [
+      'set -eu; . "$1"',
+      'slabctl_error() { echo "slabctl: $*" >&2; return 1; }',
+      'SLABCTL_INSTALL_DIRECTORY="$2"',
+      "slabctl_compose() { :; }",
+      "slabctl_wait_for_healthy_stack() { :; }",
+      "slabctl_update_functional_smoke() { :; }",
+      "slabctl_update_agents_database() { :; }",
+      "slabctl_update_recover_maintenance",
+    ].join("; "),
+    "pre-management-install-recovery-test",
+    path.join(root, "installer/lib/update.sh"),
+    fixture.install,
+  ]);
+  assert.equal(recovery.status, 0, recovery.stderr);
+  assert.equal(JSON.parse(fs.readFileSync(statePath, "utf8")).status, "ROLLED_BACK");
+  assert.equal(
+    fs.readFileSync(path.join(fixture.install, "config/install.env"), "utf8"),
+    originalEnvironment,
+  );
+  assert.equal(
+    fs.readFileSync(path.join(fixture.install, "VERSION"), "utf8").trim(),
+    "0.1.0-candidate.9",
+  );
+});
+
+test("interrupted incompatible APPLYING recovery fails closed", (t) => {
+  const fixture = updateFixture(t);
+  fs.writeFileSync(
+    path.join(fixture.install, "release-manifest.json"),
+    `${JSON.stringify({ stackVersion: "0.1.0-candidate.9.unknown" })}\n`,
+  );
+  const statePath = path.join(fixture.install, "config/update-state.json");
+  fs.writeFileSync(
+    statePath,
+    `${JSON.stringify({
+      schemaVersion: 1,
+      status: "APPLYING",
+      fromVersion: "0.1.0-candidate.9",
+      toVersion: "0.1.0-candidate.10",
+      channel: "candidate",
+      message: "Interrupted while rendering.",
+      backupPath: "/var/backups/slab/pre-update.tar.gz",
+      recoveryDirectory: "/var/lib/slab/config/update-recovery/previous",
+      rollbackCompatible: false,
+    })}\n`,
+  );
+  const recovery = command("sh", [
+    "-c",
+    [
+      'set -eu; . "$1"',
+      'slabctl_error() { echo "slabctl: $*" >&2; return 1; }',
+      'SLABCTL_INSTALL_DIRECTORY="$2"',
+      "slabctl_compose() { :; }",
+      "slabctl_wait_for_healthy_stack() { :; }",
+      "slabctl_update_functional_smoke() { :; }",
+      "slabctl_update_agents_database() { :; }",
+      "slabctl_update_recover_maintenance",
+    ].join("; "),
+    "interrupted-applying-identity-test",
+    path.join(root, "installer/lib/update.sh"),
+    fixture.install,
+  ]);
+  assert.notEqual(recovery.status, 0);
+  assert.match(recovery.stderr, /non-rollback-compatible boundary/);
+  assert.equal(JSON.parse(fs.readFileSync(statePath, "utf8")).status, "APPLYING");
+  assert.equal(
+    fs.readFileSync(path.join(fixture.install, "VERSION"), "utf8").trim(),
+    "0.1.0-candidate.9",
+  );
+});
+
+test("interrupted target identity commit restores the complete prior generation", (t) => {
+  const fixture = updateFixture(t);
+  const recoveryDirectory = stagePreviousRelease(fixture);
+  fs.writeFileSync(
+    path.join(fixture.install, "VERSION"),
+    "0.1.0-candidate.10\n",
+  );
+  fs.writeFileSync(
+    path.join(fixture.install, "release-manifest.json"),
+    `${JSON.stringify({ stackVersion: "0.1.0-candidate.10" })}\n`,
+  );
+  const statePath = path.join(fixture.install, "config/update-state.json");
+  fs.writeFileSync(
+    statePath,
+    `${JSON.stringify({
+      schemaVersion: 1,
+      status: "APPLYING",
+      fromVersion: "0.1.0-candidate.9",
+      toVersion: "0.1.0-candidate.10",
+      channel: "candidate",
+      message: "Interrupted while committing installed identity.",
+      backupPath: "/var/backups/slab/pre-update.tar.gz",
+      recoveryDirectory,
+      rollbackCompatible: true,
+    })}\n`,
+  );
+  const recovery = command("sh", [
+    "-c",
+    [
+      'set -eu; . "$1"',
+      'slabctl_error() { echo "slabctl: $*" >&2; return 1; }',
+      'SLABCTL_INSTALL_DIRECTORY="$2"',
+      'SLABCTL_STATE_FILE="$2/config/install-state.json"',
+      "slabctl_compose() { :; }",
+      "slabctl_wait_for_healthy_stack() { :; }",
+      "slabctl_update_functional_smoke() { :; }",
+      "slabctl_update_agents_database() { :; }",
+      "slabctl_update_recover_maintenance",
+    ].join("; "),
+    "interrupted-identity-commit-test",
+    path.join(root, "installer/lib/update.sh"),
+    fixture.install,
+  ]);
+  assert.equal(recovery.status, 0, recovery.stderr);
+  assert.equal(JSON.parse(fs.readFileSync(statePath, "utf8")).status, "ROLLED_BACK");
+  assert.equal(
+    JSON.parse(
+      fs.readFileSync(
+        path.join(fixture.install, "config/install-state.json"),
+        "utf8",
+      ),
+    ).version,
+    "0.1.0-candidate.9",
+  );
+  assert.equal(
+    fs.readFileSync(path.join(fixture.install, "VERSION"), "utf8").trim(),
+    "0.1.0-candidate.9",
+  );
 });
 
 for (const terminalCase of [
@@ -632,6 +1113,10 @@ for (const terminalCase of [
     fs.writeFileSync(
       path.join(fixture.install, "VERSION"),
       `${terminalCase.installed}\n`,
+    );
+    fs.writeFileSync(
+      path.join(fixture.install, "release-manifest.json"),
+      `${JSON.stringify({ stackVersion: terminalCase.installed })}\n`,
     );
     fs.writeFileSync(
       path.join(fixture.install, "config/update-state.json"),
@@ -687,11 +1172,56 @@ test("SemVer precedence treats a stable release as newer than its prerelease", (
     "slabctl_update_version_at_least 1.0.0 1.0.0-candidate.1",
     "! slabctl_update_version_at_least 1.0.0-candidate.1 1.0.0",
     "slabctl_update_version_at_least 0.1.0-candidate.10 0.1.0-candidate.9",
+    "slabctl_update_version_at_least 1.0.0+build.2 1.0.0+build.1",
+    "slabctl_update_version_at_least 1.0.0+build.1 1.0.0+build.2",
+    "! slabctl_update_is_newer 1.0.0+build.1 1.0.0+build.2",
+    "slabctl_update_is_newer 1.0.0-candidate.1+build.9 1.0.0+build.1",
   ].join("; ");
   const result = command("sh", [
     "-c",
     script,
     "semver-test",
+    path.join(root, "installer/lib/update.sh"),
+  ]);
+  assert.equal(result.status, 0, result.stderr);
+});
+
+test("release target validation accepts SemVer build metadata", () => {
+  const script = [
+    '. "$1"',
+    'slabctl_error() { echo "slabctl: $*" >&2; return 1; }',
+    "slabctl_release_validate_version 1.2.3+build.7",
+    "slabctl_release_validate_version 1.2.3-rc.1+build.7",
+    "! slabctl_release_validate_version 1.2.3-01",
+    "! slabctl_release_validate_version 1.2.3-rc..1",
+    "! slabctl_release_validate_version 1.2.3+build..7",
+  ].join("; ");
+  const result = command("sh", [
+    "-c",
+    script,
+    "release-version-test",
+    path.join(root, "installer/lib/release-client.sh"),
+  ]);
+  assert.equal(result.status, 0, result.stderr);
+});
+
+test("update CLI option validation rejects action-inappropriate flags", () => {
+  const script = [
+    '. "$1"',
+    "slabctl_update_validate_cli_options check 0 0 json 1.2.3",
+    "slabctl_update_validate_cli_options apply 1 1 text 1.2.3",
+    "slabctl_update_validate_cli_options rollback 0 1 text ''",
+    "! slabctl_update_validate_cli_options rollback 0 1 json ''",
+    "! slabctl_update_validate_cli_options rollback 0 1 text 1.2.3",
+    "! slabctl_update_validate_cli_options rollback 1 1 text ''",
+    "slabctl_update_validate_cli_options recover-maintenance 0 0 text ''",
+    "! slabctl_update_validate_cli_options recover-maintenance 0 1 text ''",
+    "! slabctl_update_validate_cli_options recover-maintenance 1 0 text ''",
+  ].join("; ");
+  const result = command("sh", [
+    "-c",
+    script,
+    "update-cli-options-test",
     path.join(root, "installer/lib/update.sh"),
   ]);
   assert.equal(result.status, 0, result.stderr);
@@ -762,19 +1292,37 @@ test("an unresolved recovery state blocks another update attempt", () => {
   );
   try {
     fs.mkdirSync(path.join(directory, "config"), { recursive: true });
-    fs.writeFileSync(
-      path.join(directory, "config/update-state.json"),
-      '{"status":"RECOVERY_REQUIRED"}\n',
-    );
-    const result = command("sh", [
+    const statePath = path.join(directory, "config/update-state.json");
+    for (const status of [
+      "DRAINING",
+      "BACKING_UP",
+      "APPLYING",
+      "FAILED",
+      "RECOVERY_REQUIRED",
+      "ROLLBACK_FAILED",
+    ]) {
+      fs.writeFileSync(statePath, `${JSON.stringify({ status })}\n`);
+      const result = command("sh", [
+        "-c",
+        '. "$1"; slabctl_error() { echo "$*" >&2; return 1; }; SLABCTL_INSTALL_DIRECTORY="$2"; slabctl_update_assert_recoverable_state',
+        "recovery-gate-test",
+        path.join(root, "installer/lib/update.sh"),
+        directory,
+      ]);
+      assert.notEqual(result.status, 0, status);
+      assert.match(result.stderr, /requires recovery/, status);
+    }
+
+    fs.writeFileSync(statePath, '{"status":"SURPRISE"}\n');
+    const invalid = command("sh", [
       "-c",
       '. "$1"; slabctl_error() { echo "$*" >&2; return 1; }; SLABCTL_INSTALL_DIRECTORY="$2"; slabctl_update_assert_recoverable_state',
-      "recovery-gate-test",
+      "invalid-recovery-gate-test",
       path.join(root, "installer/lib/update.sh"),
       directory,
     ]);
-    assert.notEqual(result.status, 0);
-    assert.match(result.stderr, /requires recovery/);
+    assert.notEqual(invalid.status, 0);
+    assert.match(invalid.stderr, /unsupported status/);
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });
   }

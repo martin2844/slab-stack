@@ -50,6 +50,7 @@ slabctl_update_version_at_least() {
     function compare(left, right, left_dash, right_dash, left_core, right_core,
       left_pre, right_pre, left_parts, right_parts, left_count, right_count,
       index_value, left_numeric, right_numeric, result) {
+      sub(/\+.*/, "", left); sub(/\+.*/, "", right)
       left_dash = index(left, "-"); right_dash = index(right, "-")
       left_core = left_dash ? substr(left, 1, left_dash - 1) : left
       right_core = right_dash ? substr(right, 1, right_dash - 1) : right
@@ -90,8 +91,232 @@ slabctl_update_version_at_least() {
 slabctl_update_is_newer() {
   current=$1
   candidate=$2
-  [ "$current" != "$candidate" ] || return 1
-  slabctl_update_version_at_least "$candidate" "$current"
+  slabctl_update_version_at_least "$candidate" "$current" &&
+    ! slabctl_update_version_at_least "$current" "$candidate"
+}
+
+slabctl_update_has_equal_precedence() {
+  first_version=$1
+  second_version=$2
+  slabctl_update_version_at_least "$first_version" "$second_version" &&
+    slabctl_update_version_at_least "$second_version" "$first_version"
+}
+
+slabctl_update_write_attempt() {
+  attempt_action=$1
+  attempt_channel=$2
+  attempt_expected=$3
+  attempt_observed=$4
+  attempt_message=$5
+  attempt_path=$SLABCTL_INSTALL_DIRECTORY/config/update-attempt.json
+  attempt_temporary=$SLABCTL_INSTALL_DIRECTORY/config/.update-attempt.$$
+  if ! jq -n \
+    --arg action "$attempt_action" \
+    --arg channel "$attempt_channel" \
+    --arg expectedTarget "$attempt_expected" \
+    --arg observedTarget "$attempt_observed" \
+    --arg message "$attempt_message" \
+    --arg attemptedAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    '{schemaVersion:1,status:"TARGET_MISMATCH",action:$action,
+      channel:$channel,expectedTarget:$expectedTarget,
+      observedTarget:$observedTarget,message:$message,attemptedAt:$attemptedAt}' \
+    > "$attempt_temporary"
+  then
+    rm -f "$attempt_temporary"
+    return 1
+  fi
+  chmod 0600 "$attempt_temporary" || {
+    rm -f "$attempt_temporary"
+    return 1
+  }
+  mv "$attempt_temporary" "$attempt_path" || {
+    rm -f "$attempt_temporary"
+    return 1
+  }
+}
+
+slabctl_update_assert_expected_target() {
+  expected_target=${1:-}
+  target_action=${2:-check}
+  target_channel=${3:-candidate}
+  [ -z "$expected_target" ] || [ "$SLAB_RELEASE_VERSION" = "$expected_target" ] || {
+    mismatch_message="Signed channel target changed: expected $expected_target, observed $SLAB_RELEASE_VERSION."
+    slabctl_update_write_attempt "$target_action" "$target_channel" \
+      "$expected_target" "$SLAB_RELEASE_VERSION" "$mismatch_message" || {
+        slabctl_error "could not persist the rejected exact-target update attempt"
+        return 1
+      }
+    slabctl_error "signed channel target changed: expected $expected_target, observed $SLAB_RELEASE_VERSION"
+    return 1
+  }
+}
+
+slabctl_update_validate_cli_options() {
+  cli_action=$1
+  cli_channel_explicit=$2
+  cli_confirmed=$3
+  cli_output_format=$4
+  cli_target=$5
+  case "$cli_action" in
+    check)
+      [ "$cli_confirmed" -eq 0 ]
+      ;;
+    apply)
+      [ "$cli_output_format" = text ]
+      ;;
+    rollback)
+      [ "$cli_channel_explicit" -eq 0 ] &&
+        [ "$cli_output_format" = text ] &&
+        [ -z "$cli_target" ]
+      ;;
+    recover-maintenance)
+      [ "$cli_channel_explicit" -eq 0 ] &&
+        [ "$cli_confirmed" -eq 0 ] &&
+        [ "$cli_output_format" = text ] &&
+        [ -z "$cli_target" ]
+      ;;
+    *) return 1 ;;
+  esac
+}
+
+slabctl_update_classify_status() {
+  case "$1" in
+    UPDATED | ROLLED_BACK | CANCELLED) printf '%s\n' safe ;;
+    DRAINING | BACKING_UP | APPLYING | FAILED | RECOVERY_REQUIRED | ROLLBACK_FAILED)
+      printf '%s\n' recovery
+      ;;
+    *)
+      printf '%s\n' invalid
+      return 1
+      ;;
+  esac
+}
+
+slabctl_update_check_recovery_reason() {
+  check_current=$1
+  check_installed_manifest=$SLABCTL_INSTALL_DIRECTORY/release-manifest.json
+  [ -f "$check_installed_manifest" ] && [ ! -L "$check_installed_manifest" ] || {
+    printf '%s\n' "Installed release manifest is missing or unsafe."
+    return 1
+  }
+  check_manifest_version=$(jq -er '.stackVersion' "$check_installed_manifest" \
+    2>/dev/null) || {
+      printf '%s\n' "Installed release manifest has no valid stack identity."
+      return 1
+    }
+  [ "$check_current" = "$check_manifest_version" ] || {
+    printf '%s\n' \
+      "Installed version and release manifest disagree; recover the interrupted update."
+    return 1
+  }
+  check_state_path=$(slabctl_update_state_path)
+  [ ! -e "$check_state_path" ] || [ -f "$check_state_path" ] &&
+    [ ! -L "$check_state_path" ] || {
+      printf '%s\n' "Update recovery state is unsafe."
+      return 1
+    }
+  [ -f "$check_state_path" ] || return 0
+  check_previous_status=$(jq -er '.status' "$check_state_path" 2>/dev/null) || {
+    printf '%s\n' "Update recovery state is invalid."
+    return 1
+  }
+  if ! check_classification=$(slabctl_update_classify_status \
+    "$check_previous_status"); then
+    printf '%s\n' "Update recovery state has an unsupported status."
+    return 1
+  fi
+  [ "$check_classification" = safe ] || {
+    printf '%s\n' \
+      "The previous update is in $check_previous_status state and requires recovery."
+    return 1
+  }
+}
+
+slabctl_update_check_json() {
+  current=$1
+  channel=$2
+  installed_manifest=$SLABCTL_INSTALL_DIRECTORY/release-manifest.json
+  [ -f "$installed_manifest" ] && [ ! -L "$installed_manifest" ] || {
+    slabctl_error "installed release manifest is missing or unsafe"
+    return 1
+  }
+  recovery_reason=
+  recovery_required=false
+  if ! recovery_reason=$(slabctl_update_check_recovery_reason "$current"); then
+    recovery_required=true
+  fi
+  checked_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  if [ "$recovery_required" = true ]; then
+    update_status=recovery_required
+  elif [ "$current" = "$SLAB_RELEASE_VERSION" ]; then
+    update_status=up_to_date
+  elif slabctl_update_is_newer "$current" "$SLAB_RELEASE_VERSION"; then
+    update_status=update_available
+  elif slabctl_update_has_equal_precedence "$current" "$SLAB_RELEASE_VERSION"; then
+    update_status=channel_equivalent
+  else
+    update_status=channel_older
+  fi
+  minimum_rollback=$(jq -er '.migrationCompatibility.minimumRollbackStack' \
+    "$SLAB_RELEASE_MANIFEST") || return 1
+  if slabctl_update_version_at_least "$current" "$minimum_rollback"; then
+    check_rollback_compatible=true
+  else
+    check_rollback_compatible=false
+  fi
+  jq -n \
+    --slurpfile installed "$installed_manifest" \
+    --slurpfile available "$SLAB_RELEASE_MANIFEST" \
+    --arg installedVersion "$current" \
+    --arg availableVersion "$SLAB_RELEASE_VERSION" \
+    --arg channel "$channel" \
+    --arg status "$update_status" \
+    --arg checkedAt "$checked_at" \
+    --arg recoveryReason "$recovery_reason" \
+    --argjson recoveryRequired "$recovery_required" \
+    --argjson rollbackCompatible "$check_rollback_compatible" '
+      def revision:
+        if . == null then null
+        else (.ref | capture("(?:candidate-|sha-)(?<revision>[a-f0-9]{7,40})$").revision? // null)
+        end;
+      def component($id; $name; $services; $recoveryRequired):
+        ($installed[0].images[$id] // null) as $current |
+        ($available[0].images[$id] // null) as $target |
+        {
+          id: $id,
+          name: $name,
+          services: $services,
+          installed: ($current | if . == null then null else
+            {ref, digest, revision: revision} end),
+          available: ($target | if . == null then null else
+            {ref, digest, revision: revision} end),
+          status: (if $recoveryRequired then "recovery_required"
+            elif $current.digest == $target.digest then
+            "up_to_date" else "update_available" end)
+        };
+      {
+        schemaVersion: 1,
+        status: $status,
+        channel: $channel,
+        installedStackVersion: $installedVersion,
+        availableStackVersion: $availableVersion,
+        checkedAt: $checkedAt,
+        recoveryReason: ($recoveryReason | if length > 0 then . else null end),
+        release: {
+          releasedAt: ($available[0].releasedAt // null),
+          severity: ($available[0].severity // "routine"),
+          releaseNotesUrl: ($available[0].releaseNotesUrl // null),
+          rollbackCompatibleFromInstalled: $rollbackCompatible
+        },
+        components: [
+          component("agents"; "Agents"; ["slab-agents"]; $recoveryRequired),
+          component("work"; "Work"; ["work-migrate", "slab-api", "slab-mcp"]; $recoveryRequired),
+          component("docs"; "Docs"; ["docs-migrate", "slab-docs"]; $recoveryRequired),
+          component("email"; "Email"; ["email-migrate", "slab-email"]; $recoveryRequired),
+          component("runner"; "Runner"; ["slab-runner"]; $recoveryRequired)
+        ]
+      }
+    '
 }
 
 slabctl_update_agents_database() {
@@ -143,14 +368,24 @@ slabctl_update_exit_maintenance() {
 
 slabctl_update_assert_recoverable_state() {
   state_path=$(slabctl_update_state_path)
+  [ ! -e "$state_path" ] || [ -f "$state_path" ] && [ ! -L "$state_path" ] || {
+    slabctl_error "the previous update state is unsafe"
+    return 1
+  }
   [ -f "$state_path" ] || return 0
-  previous_status=$(jq -r '.status // empty' "$state_path" 2>/dev/null || true)
-  case "$previous_status" in
-    APPLYING | RECOVERY_REQUIRED | ROLLBACK_FAILED)
-      slabctl_error "the previous update requires recovery before another update can run"
-      return 1
-      ;;
-  esac
+  previous_status=$(jq -er '.status' "$state_path" 2>/dev/null) || {
+    slabctl_error "the previous update state is invalid"
+    return 1
+  }
+  if ! previous_classification=$(slabctl_update_classify_status \
+    "$previous_status"); then
+    slabctl_error "the previous update state has an unsupported status"
+    return 1
+  fi
+  [ "$previous_classification" = safe ] || {
+    slabctl_error "the previous update requires recovery before another update can run"
+    return 1
+  }
 }
 
 slabctl_update_recover_maintenance() (
@@ -169,54 +404,91 @@ slabctl_update_recover_maintenance() (
   installed_version=$(sed -n '1p' "$SLABCTL_INSTALL_DIRECTORY/VERSION")
   manifest_version=$(jq -r '.stackVersion // ""' \
     "$SLABCTL_INSTALL_DIRECTORY/release-manifest.json" 2>/dev/null || true)
-  reconcile_identity=
+  reconcile_stack=0
+  restore_previous=0
 
   case "$status:$installed_version" in
-    APPLYING:"$from_version")
-      if [ "$manifest_version" = "$to_version" ]; then
-        terminal_status=UPDATED
+    DRAINING:"$from_version" | BACKING_UP:"$from_version" | FAILED:"$from_version")
+      [ "$manifest_version" = "$from_version" ] || {
+        slabctl_error "pre-update recovery state disagrees with installed release files"
+        exit 1
+      }
+      terminal_status=CANCELLED
+      terminal_from=$from_version
+      terminal_to=$to_version
+      terminal_message="The interrupted pre-update attempt was cancelled and agent dispatch maintenance was cleared."
+      ;;
+    APPLYING:"$from_version" | APPLYING:"$to_version" | \
+      RECOVERY_REQUIRED:"$from_version" | RECOVERY_REQUIRED:"$to_version")
+      if [ "$status" = RECOVERY_REQUIRED ] && [ -z "$recovery_directory" ]; then
+        [ "$installed_version" = "$from_version" ] &&
+          [ "$manifest_version" = "$from_version" ] || {
+            slabctl_error "pre-update recovery state disagrees with installed release files"
+            exit 1
+          }
+        terminal_status=CANCELLED
         terminal_from=$from_version
         terminal_to=$to_version
-        terminal_message="The target release is healthy after an interrupted update and agent dispatch maintenance was cleared."
-        reconcile_identity=$to_version
+        terminal_message="The pre-update attempt was cancelled and agent dispatch maintenance was cleared."
       else
+        [ "$rollback_compatible" = true ] || {
+          slabctl_error "the interrupted update crossed a non-rollback-compatible boundary; restore the verified backup"
+          exit 1
+        }
+        [ -n "$recovery_directory" ] && [ -d "$recovery_directory" ] &&
+          [ ! -L "$recovery_directory" ] || {
+            slabctl_error "staged previous release is unavailable for recovery"
+            exit 1
+          }
+        staged_version=$(sed -n '1p' "$recovery_directory/VERSION" \
+          2>/dev/null || true)
+        staged_manifest_version=$(jq -r '.stackVersion // ""' \
+          "$recovery_directory/release-manifest.json" 2>/dev/null || true)
+        [ -n "$staged_version" ] &&
+          [ "$staged_version" = "$staged_manifest_version" ] || {
+            slabctl_error "staged previous release has an inconsistent identity"
+            exit 1
+          }
+        case "$staged_version" in
+          "$from_version") terminal_from=$to_version ;;
+          "$to_version") terminal_from=$from_version ;;
+          *)
+            slabctl_error "staged previous release does not match the update ledger"
+            exit 1
+            ;;
+        esac
         terminal_status=ROLLED_BACK
-        terminal_from=$from_version
-        terminal_to=$to_version
-        terminal_message="The previous release is healthy after an interrupted update and agent dispatch maintenance was cleared."
+        terminal_to=$staged_version
+        terminal_message="The staged previous release was restored and is healthy; agent dispatch maintenance was cleared."
+        restore_previous=1
+        reconcile_stack=1
       fi
       ;;
-    APPLYING:"$to_version")
-      terminal_status=UPDATED
-      terminal_from=$from_version
-      terminal_to=$to_version
-      terminal_message="The target release is healthy after an interrupted update and agent dispatch maintenance was cleared."
-      ;;
-    RECOVERY_REQUIRED:"$from_version")
-      terminal_status=ROLLED_BACK
-      terminal_from=$from_version
-      terminal_to=$to_version
-      terminal_message="The previous release is healthy and agent dispatch maintenance was cleared."
-      ;;
-    RECOVERY_REQUIRED:"$to_version")
-      terminal_status=UPDATED
-      terminal_from=$from_version
-      terminal_to=$to_version
-      terminal_message="The target release is healthy and agent dispatch maintenance was cleared."
-      ;;
     ROLLBACK_FAILED:"$from_version")
+      [ "$manifest_version" = "$from_version" ] || {
+        slabctl_error "failed rollback state disagrees with installed release files"
+        exit 1
+      }
       terminal_status=UPDATED
       terminal_from=$to_version
       terminal_to=$from_version
       terminal_message="The installed release remains healthy after the failed rollback and agent dispatch maintenance was cleared."
       ;;
     UPDATED:"$to_version")
+      [ "$manifest_version" = "$to_version" ] || {
+        slabctl_error "updated state disagrees with installed release files"
+        exit 1
+      }
       terminal_status=UPDATED
       terminal_from=$from_version
       terminal_to=$to_version
       terminal_message="The target release is healthy and agent dispatch maintenance was cleared."
       ;;
     ROLLED_BACK:"$to_version")
+      [ "$manifest_version" = "$to_version" ] || {
+        slabctl_error "rolled-back state disagrees with installed release files"
+        exit 1
+      }
       terminal_status=ROLLED_BACK
       terminal_from=$from_version
       terminal_to=$to_version
@@ -228,11 +500,21 @@ slabctl_update_recover_maintenance() (
       ;;
   esac
 
+  if [ "$restore_previous" -eq 1 ]; then
+    [ -n "$recovery_directory" ] && [ -d "$recovery_directory" ] &&
+      [ ! -L "$recovery_directory" ] || {
+        slabctl_error "staged previous release is unavailable for recovery"
+        exit 1
+      }
+    slabctl_update_restore_recovery "$recovery_directory" || exit 1
+  fi
   slabctl_compose config --quiet >/dev/null || exit 1
+  if [ "$reconcile_stack" -eq 1 ]; then
+    slabctl_compose pull >/dev/null || exit 1
+    slabctl_compose up -d --remove-orphans >/dev/null || exit 1
+  fi
   slabctl_wait_for_healthy_stack >/dev/null || exit 1
   slabctl_update_functional_smoke >/dev/null || exit 1
-  [ -z "$reconcile_identity" ] ||
-    slabctl_update_installed_identity "$reconcile_identity" || exit 1
   slabctl_update_exit_maintenance || {
     slabctl_error "could not clear agent dispatch maintenance mode"
     exit 1
@@ -382,10 +664,23 @@ slabctl_update_install_management() {
 
 slabctl_update_check() (
   channel=${1:-$(jq -r '.channel' "$SLABCTL_INSTALL_DIRECTORY/release-manifest.json")}
+  output_format=${2:-text}
+  expected_target=${3:-}
   trap slabctl_release_cleanup EXIT
   trap 'exit 130' HUP INT TERM
   slabctl_release_prepare "$channel" "$release_public_key_file" || exit 1
+  slabctl_update_assert_expected_target "$expected_target" check "$channel" || exit 1
   current=$(sed -n '1p' "$SLABCTL_INSTALL_DIRECTORY/VERSION")
+  if [ "$output_format" = json ]; then
+    slabctl_update_check_json "$current" "$channel"
+    exit
+  fi
+  if recovery_reason=$(slabctl_update_check_recovery_reason "$current"); then
+    :
+  else
+    slabctl_error "$recovery_reason"
+    exit 1
+  fi
   echo "Installed: $current"
   echo "Channel: $channel"
   echo "Available: $SLAB_RELEASE_VERSION"
@@ -393,6 +688,8 @@ slabctl_update_check() (
     echo "Status: up to date"
   elif slabctl_update_is_newer "$current" "$SLAB_RELEASE_VERSION"; then
     echo "Status: update available"
+  elif slabctl_update_has_equal_precedence "$current" "$SLAB_RELEASE_VERSION"; then
+    echo "Status: channel target has equal SemVer precedence with different build metadata"
   else
     echo "Status: channel points to an older release; no downgrade will be applied"
   fi
@@ -401,6 +698,7 @@ slabctl_update_check() (
 slabctl_update_apply() (
   channel=$1
   confirmed=$2
+  expected_target=${3:-}
   update_succeeded=0
   mutation_started=0
   maintenance_entered=0
@@ -464,30 +762,42 @@ slabctl_update_apply() (
           "$backup_path" "$recovery_directory" "$rollback_compatible" || true
         slabctl_error "automatic image rollback is unsafe; recovery from the verified backup is required"
       else
-        [ "$maintenance_entered" -eq 0 ] ||
-          slabctl_update_exit_maintenance >/dev/null 2>&1 || true
-        slabctl_update_write_state FAILED "$current" "$target" "$channel" \
-          "Update stopped before changing the installed release." \
-          "$backup_path" "$recovery_directory" "$rollback_compatible" || true
+        if [ "$maintenance_entered" -eq 1 ]; then
+          if slabctl_update_exit_maintenance >/dev/null 2>&1; then
+            maintenance_entered=0
+            slabctl_update_write_state CANCELLED "$current" "$target" "$channel" \
+              "Update stopped before changing the installed release; agent dispatch maintenance was cleared." \
+              "$backup_path" "$recovery_directory" "$rollback_compatible" || true
+          else
+            slabctl_update_write_state RECOVERY_REQUIRED "$current" "$target" "$channel" \
+              "Update stopped before changing the installed release, but agent dispatch remains in maintenance mode. Restore dispatch with: slabctl update recover-maintenance" \
+              "$backup_path" "" "$rollback_compatible" || true
+          fi
+        fi
       fi
     fi
     slabctl_release_cleanup
     exit "$cleanup_status"
   }
-  trap cleanup_update EXIT
+  trap slabctl_release_cleanup EXIT
   trap 'exit 130' HUP INT TERM
 
   slabctl_release_prepare "$channel" "$release_public_key_file" || exit 1
   target=$SLAB_RELEASE_VERSION
+  slabctl_update_assert_expected_target "$expected_target" apply "$channel" || exit 1
   if [ "$current" = "$target" ]; then
     echo "Slab is already up to date at $current."
     update_succeeded=1
     exit 0
   fi
-  slabctl_update_is_newer "$current" "$target" || {
-    slabctl_error "refusing channel downgrade from $current to $target"
+  if ! slabctl_update_is_newer "$current" "$target"; then
+    if slabctl_update_has_equal_precedence "$current" "$target"; then
+      slabctl_error "refusing release with equal SemVer precedence but different build metadata: $current -> $target"
+    else
+      slabctl_error "refusing channel downgrade from $current to $target"
+    fi
     exit 1
-  }
+  fi
   minimum_manager=$(jq -er '.minimumSlabctlVersion' \
     "$SLAB_RELEASE_MANIFEST") || exit 1
   manager_version=${SLABCTL_MANAGER_VERSION:-$current}
@@ -522,8 +832,9 @@ slabctl_update_apply() (
 
   slabctl_update_write_state DRAINING "$current" "$target" "$channel" \
     "Waiting for active agent runs before update." "" "" "$rollback_compatible"
-  slabctl_update_enter_maintenance || exit 1
+  trap cleanup_update EXIT
   maintenance_entered=1
+  slabctl_update_enter_maintenance || exit 1
   slabctl_update_wait_for_idle || exit 1
 
   backup_directory=${SLABCTL_UPDATE_BACKUP_DIRECTORY:-/var/backups/slab}
