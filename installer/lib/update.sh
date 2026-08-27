@@ -623,6 +623,17 @@ slabctl_update_functional_smoke() {
   '
 }
 
+slabctl_update_validate_target_release() {
+  bundle_root=$1
+  manifest=$2
+  # The release client validates the signed contract. The target renderer has
+  # its own host-side jq contract, so exercise it before maintenance, backup,
+  # or any managed-file mutation as a compatibility preflight.
+  # shellcheck source=installer/lib/render.sh
+  . "$bundle_root/installer/lib/render.sh"
+  slab_validate_release_manifest "$manifest"
+}
+
 slabctl_update_render_release() {
   bundle_root=$1
   manifest=$2
@@ -1429,6 +1440,8 @@ slabctl_update_apply() (
     slabctl_error "release $target requires at least $minimum_upgrade; installed is $current"
     exit 1
   }
+  slabctl_update_validate_target_release "$SLAB_RELEASE_BUNDLE_ROOT" \
+    "$SLAB_RELEASE_MANIFEST" || exit 1
   minimum_rollback=$(jq -er '.migrationCompatibility.minimumRollbackStack' \
     "$SLAB_RELEASE_MANIFEST") || exit 1
   if slabctl_update_version_at_least "$current" "$minimum_rollback"; then

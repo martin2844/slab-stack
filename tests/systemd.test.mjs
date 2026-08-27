@@ -314,7 +314,7 @@ test("target renderer mounts the bounded inbox before an older updater starts Co
         `SLABCTL_INSTALL_DIRECTORY=${JSON.stringify(current.installation)}; ` +
         `slab_render_installation ${JSON.stringify(root)} ` +
         `${JSON.stringify(current.installation)} ` +
-        `${JSON.stringify(path.join(root, "releases/v0.1.2-candidate.33.json"))} ` +
+        `${JSON.stringify(path.join(root, "releases/v0.1.2-candidate.34.json"))} ` +
         `private http://127.0.0.1:3009 '' '' 127.0.0.1 3009 0`,
     );
     assert.equal(result.status, 0, result.stderr);

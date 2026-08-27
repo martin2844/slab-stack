@@ -40,7 +40,7 @@ slab_validate_release_manifest() {
         .expectedOutcome == "automatic_rollback" and
         .fault == "agents_image_substituted_with_runner")) and
     (.images | exact_keys(["agents", "work", "docs", "email", "runner"])) and
-    (["agents", "work", "docs", "email", "runner"] | all(
+    (["agents", "work", "docs", "email", "runner"] | all(.[];
       . as $service |
       ($manifest.images[$service] | exact_keys(["ref", "digest", "platforms"])) and
       ($manifest.images[$service].ref | test("^ghcr\\.io/[a-z0-9_.-]+/[a-z0-9_.-]+:(?:v?[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?|candidate-[a-f0-9]{40})$")) and
@@ -48,7 +48,7 @@ slab_validate_release_manifest() {
       ($manifest.images[$service].platforms |
         type == "array" and length == 2 and
         (unique | length == 2) and
-        all(. == "linux/amd64" or . == "linux/arm64"))
+        all(.[]; . == "linux/amd64" or . == "linux/arm64"))
     )) and
     (.migrationCompatibility |
       exact_keys(["minimumUpgradeStack", "minimumRollbackStack"]) and
@@ -60,15 +60,15 @@ slab_validate_release_manifest() {
         .schemaVersion == 1 and
         (.volumes |
           exact_keys(["agents_data", "work_data", "docs_data", "email_data"]) and
-          (["agents_data", "work_data", "docs_data", "email_data"] | all(
+          (["agents_data", "work_data", "docs_data", "email_data"] | all(.[];
             . as $volume |
             ($manifest.dataCompatibility.volumes[$volume] |
-              exact_keys(["migrations"]) and
-              (.migrations |
-                type == "array" and length > 0 and
-                . as $migrations |
-                ($migrations | unique | length) == ($migrations | length) and
-                all(type == "string" and length > 0)))
+              exact_keys(["migrations"])) and
+            ($manifest.dataCompatibility.volumes[$volume].migrations as $migrations |
+              ($migrations | type == "array") and
+              ($migrations | length > 0) and
+              (($migrations | unique | length) == ($migrations | length)) and
+              all($migrations[]; (type == "string") and ((. | length) > 0)))
           )))))
   ' "$manifest_path" >/dev/null 2>&1 || {
     echo "Invalid release manifest: $manifest_path" >&2

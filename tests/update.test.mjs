@@ -286,6 +286,7 @@ function updateFixture(
     failManagementInstall = false,
     killManagementInstall = false,
     failBackup = false,
+    failTargetValidation = false,
     rollbackCompatible = true,
     expectedTarget = "",
     managerVersion = "0.1.0-candidate.10",
@@ -358,6 +359,9 @@ SLAB_RELEASE_MANIFEST="$5"
 COMPOSE_CALLS="$6"
 OPERATION_LOG="$7"
 slabctl_release_prepare() { :; }
+slabctl_update_validate_target_release() {
+  ${failTargetValidation ? "return 1" : ":"}
+}
 slabctl_update_agents_database() {
   printf 'agents:%s\n' "$1" >> "$OPERATION_LOG"
   ${failMaintenanceOff ? '[ "$1" != maintenance-off ] || return 1' : ":"}
@@ -518,6 +522,34 @@ test("non-mutating update preflight failures preserve the rollback ledger", (t) 
   assert.deepEqual(JSON.parse(fs.readFileSync(statePath, "utf8")), previousState);
 });
 
+test("target renderer validation fails before maintenance or backup", (t) => {
+  const fixture = updateFixture(t, {
+    failTargetValidation: true,
+    rollbackCompatible: false,
+  });
+  const statePath = path.join(fixture.install, "config/update-state.json");
+  const previousState = {
+    schemaVersion: 1,
+    status: "UPDATED",
+    fromVersion: "0.1.0-candidate.8",
+    toVersion: "0.1.0-candidate.9",
+    channel: "candidate",
+    message: "Previous successful update.",
+    backupPath: "/var/backups/slab/previous.tar.gz",
+    recoveryDirectory: "/var/lib/slab/config/update-recovery/previous",
+    rollbackCompatible: true,
+    updatedAt: "2026-08-27T00:00:00Z",
+  };
+  fs.writeFileSync(statePath, `${JSON.stringify(previousState)}\n`);
+
+  const result = command("sh", fixture.args);
+
+  assert.notEqual(result.status, 0);
+  assert.equal(fs.existsSync(fixture.operations), false);
+  assert.equal(fs.existsSync(fixture.composeCalls), false);
+  assert.deepEqual(JSON.parse(fs.readFileSync(statePath, "utf8")), previousState);
+});
+
 test("JSON update check reports a component-by-component signed diff", (t) => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "slab-update-check-"));
   t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
@@ -526,7 +558,7 @@ test("JSON update check reports a component-by-component signed diff", (t) => {
   );
   const available = JSON.parse(
     fs.readFileSync(
-      path.join(root, "releases/v0.1.2-candidate.33.json"),
+      path.join(root, "releases/v0.1.2-candidate.34.json"),
       "utf8",
     ),
   );
@@ -577,7 +609,7 @@ test("JSON update check fails closed on an interrupted mixed identity", (t) => {
   t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
   const installed = JSON.parse(
     fs.readFileSync(
-      path.join(root, "releases/v0.1.2-candidate.33.json"),
+      path.join(root, "releases/v0.1.2-candidate.34.json"),
       "utf8",
     ),
   );
@@ -1233,7 +1265,7 @@ test("current candidate upgrades stable without declaring unsafe image rollback"
   );
   const candidate = JSON.parse(
     fs.readFileSync(
-      path.join(root, "releases/v0.1.2-candidate.33.json"),
+      path.join(root, "releases/v0.1.2-candidate.34.json"),
       "utf8",
     ),
   );
