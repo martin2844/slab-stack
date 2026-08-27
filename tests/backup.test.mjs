@@ -183,7 +183,7 @@ function writeTargetRelease(installation, migrations) {
   );
 }
 
-test("portable backups exclude host-local Gemini OAuth state", () => {
+test("portable backups exclude host-local runtime authentication state", () => {
   const result = backupShell(`
     printf '%s\\n' "$(slabctl_volume_scope runner_gemini)"
     printf '%s\\n' "$(slabctl_volume_scope runner_codex)"
@@ -191,8 +191,36 @@ test("portable backups exclude host-local Gemini OAuth state", () => {
   assert.equal(result.status, 0, result.stderr);
   assert.deepEqual(result.stdout.trim().split("\n"), [
     "infrastructure",
-    "product",
+    "infrastructure",
   ]);
+});
+
+test("authenticated Codex state is inspected through a read-only credential mount", (t) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "slab-backup-test-"));
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const invocation = path.join(directory, "docker-invocation.txt");
+  const result = backupShell(`
+    docker() {
+      printf '%s\n' "$*" > "$SLABCTL_DOCKER_INVOCATION"
+      printf '%s' '[{"provider":"codex","configuredAccounts":1,"portability":"reauthentication_required"}]'
+    }
+    slabctl_codex_external_auth_metadata slab_runner_codex fixture-runner
+  `, [], { SLABCTL_DOCKER_INVOCATION: invocation });
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(JSON.parse(result.stdout), [
+    {
+      provider: "codex",
+      configuredAccounts: 1,
+      portability: "reauthentication_required",
+    },
+  ]);
+  const dockerInvocation = fs.readFileSync(invocation, "utf8");
+  assert.match(dockerInvocation, /--read-only/);
+  assert.match(
+    dockerInvocation,
+    /type=volume,src=slab_runner_codex,dst=\/codex,readonly/,
+  );
+  assert.match(dockerInvocation, /\/codex\/auth\.json/);
 });
 
 test("authenticated Gemini state is recorded as requiring portable reauthentication", () => {
@@ -221,8 +249,70 @@ test("backup manifest contract accepts every emitted external authentication pro
   );
   assert.deepEqual(
     schema.properties.externalAuth.items.properties.provider.enum,
-    ["gemini", "proton_bridge"],
+    ["codex", "gemini", "proton_bridge"],
   );
+});
+
+test("restore ignores host-local auth volumes from legacy portable archives", (t) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "slab-backup-test-"));
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const manifest = path.join(directory, "manifest.json");
+  fs.writeFileSync(
+    manifest,
+    JSON.stringify({
+      volumes: [
+        { logicalName: "agents_data", archivePath: "volumes/agents_data.tar.gz" },
+        { logicalName: "runner_codex", archivePath: "volumes/runner_codex.tar.gz" },
+        { logicalName: "runner_gemini", archivePath: "volumes/runner_gemini.tar.gz" },
+      ],
+    }),
+  );
+  const result = backupShell(
+    'slabctl_restore_archive_product_volume_records "$2"',
+    [manifest],
+  );
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout.trim(), "agents_data\tvolumes/agents_data.tar.gz");
+});
+
+test("restore infers reauthentication for host auth in older manifests", (t) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "slab-backup-test-"));
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const manifest = path.join(directory, "manifest.json");
+  fs.writeFileSync(
+    manifest,
+    JSON.stringify({
+      externalAuth: [
+        {
+          provider: "gemini",
+          configuredAccounts: 1,
+          portability: "reauthentication_required",
+        },
+      ],
+      volumes: [
+        { logicalName: "agents_data" },
+        { logicalName: "runner_codex" },
+        { logicalName: "runner_gemini" },
+      ],
+    }),
+  );
+  const result = backupShell(
+    'slabctl_restore_reauthentication_required "$2"',
+    [manifest],
+  );
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(JSON.parse(result.stdout), [
+    {
+      provider: "gemini",
+      configuredAccounts: 1,
+      portability: "reauthentication_required",
+    },
+    {
+      provider: "codex",
+      configuredAccounts: 1,
+      portability: "reauthentication_required",
+    },
+  ]);
 });
 
 test("resolves legacy Compose volumes that predate project labels", () => {
@@ -615,7 +705,7 @@ test("successful restore clears maintenance restored from a pre-update backup", 
   assert.match(backupState.lastSuccessfulBackup.sha256, /^[a-f0-9]{64}$/);
 });
 
-test("restore clears non-portable Gemini sessions before services start", (t) => {
+test("restore clears non-portable runtime sessions before services start", (t) => {
   const { archive, directory } = backupFixture(t);
   const installation = path.join(directory, "installation");
   const operations = path.join(directory, "operations.txt");
@@ -630,7 +720,7 @@ test("restore clears non-portable Gemini sessions before services start", (t) =>
       "slabctl_backup_runtime_image() { echo fixture-image; }",
       'slabctl_compose() { [ "$1" = ps ] && return 0; }',
       'OPERATIONS="$4"',
-      'docker() { case "$*" in *"UPDATE threads SET runtime_thread_id = NULL"*) echo clear-gemini-session >> "$OPERATIONS" ;; esac; [ "$1" = run ]; }',
+      'docker() { case "$*" in *"WHERE runtime IN (?, ?)"*codex*gemini*) echo clear-runtime-sessions >> "$OPERATIONS" ;; esac; [ "$1" = run ]; }',
       'slabctl_stack_start() { echo start >> "$OPERATIONS"; }',
       "slabctl_wait_for_healthy_stack() { :; }",
       "slabctl_update_exit_maintenance() { :; }",
@@ -642,13 +732,18 @@ test("restore clears non-portable Gemini sessions before services start", (t) =>
   );
   assert.equal(result.status, 0, result.stderr);
   assert.deepEqual(fs.readFileSync(operations, "utf8").trim().split("\n"), [
-    "clear-gemini-session",
+    "clear-runtime-sessions",
     "start",
   ]);
 });
 
 test("v2 restore persists external providers that require host reauthentication", (t) => {
   const externalAuth = [
+    {
+      provider: "codex",
+      configuredAccounts: 1,
+      portability: "reauthentication_required",
+    },
     {
       provider: "proton_bridge",
       configuredAccounts: 1,

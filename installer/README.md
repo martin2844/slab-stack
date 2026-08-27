@@ -172,7 +172,7 @@ data set.
 ## Backup and restore
 
 `slabctl` creates a consistent, root-private archive by briefly stopping the
-running services, archiving every Compose-managed state volume, and starting
+running services, archiving every portable product-data volume, and starting
 the stack again. The archive includes the installed release metadata, image
 digests, SQLite migration versions, file sizes, and SHA-256 checksums. A backup
 is not reported as successful until the complete archive verifies.
@@ -186,7 +186,8 @@ sudo slabctl backup verify /mnt/slab-backups/workspace-2026-08-23.tar.gz
 
 The default destination is `/var/backups/slab`. Archives contain workspace
 secrets and therefore use mode `0600`; protect or encrypt the destination when
-moving a backup off-host.
+moving a backup off-host. Codex and Gemini login credentials are host-local and
+are intentionally excluded from portable archives.
 
 For an encrypted archive, generate and secure an age identity once, keep a
 separate recovery copy, and pass the root-private identity file explicitly:
@@ -220,7 +221,9 @@ The terminal restore state lists external providers that cannot carry their
 host session to a new machine. Gmail and encrypted connector configuration stay
 inside the restored product data. A configured Proton Bridge account is marked
 `reauthentication_required`; after a host move, run `sudo slabctl proton setup`
-before relying on that account.
+before relying on that account. Configured Codex and Gemini accounts are also
+marked for reauthentication. Their saved runtime thread identifiers are cleared
+because the corresponding host-local CLI sessions are not restored.
 
 Pass `--identity /root/slab-backup.agekey` for an encrypted archive.
 

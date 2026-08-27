@@ -143,7 +143,7 @@ slabctl_volume_names() {
 
 slabctl_volume_scope() {
   case "$1" in
-    caddy_data | caddy_config | runner_gemini) printf '%s\n' infrastructure ;;
+    caddy_data | caddy_config | runner_codex | runner_gemini) printf '%s\n' infrastructure ;;
     *) printf '%s\n' product ;;
   esac
 }
@@ -312,6 +312,31 @@ slabctl_gemini_external_auth_metadata() {
     '
 }
 
+slabctl_codex_external_auth_metadata() {
+  docker_volume=$1
+  image=$2
+  docker run --rm --read-only --user 0 --entrypoint node \
+    --mount "type=volume,src=$docker_volume,dst=/codex,readonly" \
+    "$image" -e '
+      const fs = require("node:fs");
+      let authenticated = false;
+      try {
+        const credentials = fs.statSync("/codex/auth.json");
+        const authentication = JSON.parse(
+          fs.readFileSync("/codex/auth.json", "utf8"),
+        );
+        authenticated = credentials.isFile() && credentials.size > 0 &&
+          authentication !== null && typeof authentication === "object" &&
+          !Array.isArray(authentication) && Object.keys(authentication).length > 0;
+      } catch {}
+      process.stdout.write(JSON.stringify(authenticated ? [{
+        provider: "codex",
+        configuredAccounts: 1,
+        portability: "reauthentication_required",
+      }] : []));
+    '
+}
+
 slabctl_append_external_auth_metadata() {
   target=$1
   entries=$2
@@ -335,8 +360,8 @@ slabctl_restore_clear_nonportable_runtime_threads() {
       );
       if (columns.has("runtime") && columns.has("runtime_thread_id")) {
         database.prepare(
-          "UPDATE threads SET runtime_thread_id = NULL WHERE runtime = ? AND runtime_thread_id IS NOT NULL",
-        ).run("gemini");
+          "UPDATE threads SET runtime_thread_id = NULL WHERE runtime IN (?, ?) AND runtime_thread_id IS NOT NULL",
+        ).run("codex", "gemini");
       }
       database.close();
     '
@@ -479,6 +504,18 @@ slabctl_backup_create() (
   : > "$files_jsonl"
   : > "$volumes_jsonl"
   printf '%s\n' '[]' > "$external_auth_json"
+
+  if slabctl_volume_names | grep -Fx runner_codex >/dev/null; then
+    codex_volume=$(slabctl_resolve_volume runner_codex) || exit 1
+    codex_external_auth=$(
+      slabctl_codex_external_auth_metadata "$codex_volume" "$runtime_image"
+    ) || {
+      slabctl_error "could not inspect Codex authentication portability"
+      exit 1
+    }
+    slabctl_append_external_auth_metadata "$external_auth_json" \
+      "$codex_external_auth" || exit 1
+  fi
 
   if slabctl_volume_names | grep -Fx runner_gemini >/dev/null; then
     gemini_volume=$(slabctl_resolve_volume runner_gemini) || exit 1
@@ -631,7 +668,7 @@ slabctl_backup_validate_manifest() {
       (.externalAuth | type == "array") and
       ([.externalAuth[].provider] | length == (unique | length)) and
       ([.externalAuth[] |
-        (.provider | IN("proton_bridge", "gemini")) and
+        (.provider | IN("codex", "proton_bridge", "gemini")) and
         (.configuredAccounts | type == "number" and . >= 1) and
         .portability == "reauthentication_required"] | all)
     else true end)
@@ -749,8 +786,38 @@ slabctl_restore_archive_product_volumes() {
   jq -r '
     .volumes[] |
     select((.scope // (if (.logicalName | startswith("caddy_")) then "infrastructure" else "product" end)) == "product") |
+    select(.logicalName != "runner_codex" and .logicalName != "runner_gemini") |
     .logicalName
   ' "$manifest_path" | LC_ALL=C sort -u
+}
+
+slabctl_restore_archive_product_volume_records() {
+  manifest_path=$1
+  jq -r '
+    .volumes[] |
+    select((.scope // (if (.logicalName | startswith("caddy_")) then "infrastructure" else "product" end)) == "product") |
+    select(.logicalName != "runner_codex" and .logicalName != "runner_gemini") |
+    [.logicalName, .archivePath] | @tsv
+  ' "$manifest_path"
+}
+
+slabctl_restore_reauthentication_required() {
+  manifest_path=$1
+  jq -c '
+    (.externalAuth // []) as $declared |
+    ($declared | map(.provider)) as $declaredProviders |
+    $declared + [
+      .volumes[] |
+      select(.logicalName == "runner_codex" or .logicalName == "runner_gemini") |
+      (if .logicalName == "runner_codex" then "codex" else "gemini" end) as $provider |
+      select($declaredProviders | index($provider) | not) |
+      {
+        provider: $provider,
+        configuredAccounts: 1,
+        portability: "reauthentication_required"
+      }
+    ]
+  ' "$manifest_path"
 }
 
 slabctl_restore_schema_compatible() {
@@ -862,7 +929,7 @@ slabctl_restore_archive() (
   fi
 
   archive_sha256=$(sha256sum "$archive" | awk '{print $1}') || exit 1
-  reauthentication_required=$(jq -c '[.externalAuth[]? | select(.portability == "reauthentication_required")]' \
+  reauthentication_required=$(slabctl_restore_reauthentication_required \
     "$temporary_directory/manifest.json") || exit 1
   slabctl_restore_write_state RESTORING "$archive_sha256" \
     "Replacing workspace volumes from a verified backup." \
@@ -887,7 +954,7 @@ slabctl_restore_archive() (
       break
     fi
   done <<EOF
-$(jq -r '.volumes[] | select((.scope // (if (.logicalName | startswith("caddy_")) then "infrastructure" else "product" end)) == "product") | [.logicalName,.archivePath] | @tsv' "$temporary_directory/manifest.json")
+$(slabctl_restore_archive_product_volume_records "$temporary_directory/manifest.json")
 EOF
 
   if [ "$restore_failed" -eq 0 ]; then

@@ -113,7 +113,7 @@
         "required": ["provider", "configuredAccounts", "portability"],
         "properties": {
           "provider": {
-            "enum": ["gemini", "proton_bridge"]
+            "enum": ["codex", "gemini", "proton_bridge"]
           },
           "configuredAccounts": { "type": "integer", "minimum": 1 },
           "portability": { "const": "reauthentication_required" }
