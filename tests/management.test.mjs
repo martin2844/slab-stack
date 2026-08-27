@@ -544,9 +544,13 @@ test("management recovery keeps its recovery-aware launcher until every library 
     before.lifecycle = Buffer.from(oldLifecycle);
     before.update = Buffer.from(oldUpdate);
     const recoveryMarker = path.join(directory, "maintenance-recovered");
+    const recoveryUpdate = fs.readFileSync(
+      path.join(root, "installer/lib/update.sh"),
+      "utf8",
+    );
     fs.writeFileSync(
       path.join(rollback, "recovery-update.sh"),
-      `#!/bin/sh
+      `${recoveryUpdate}
 slabctl_update_recover_maintenance() {
   printf '%s\n' '{"status":"UPDATED"}' > "$SLABCTL_INSTALL_DIRECTORY/config/update-state.json"
   : > "$RECOVERY_MARKER"
