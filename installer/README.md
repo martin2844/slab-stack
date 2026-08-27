@@ -128,9 +128,11 @@ rest of the stack:
 
 ## Service lifecycle
 
-The installer atomically installs `/etc/systemd/system/slab.service`, refuses
-to overwrite an unmanaged unit with that name, and enables it for every boot.
-The unit runs the same registered, immutable Compose identity as `slabctl`.
+The installer installs `/etc/systemd/system/slab.service` plus the managed
+`slab-update-bridge.path` and `slab-update-bridge.service` units,
+refuses to overwrite unmanaged units with those names, and enables the stack
+and request watcher for every boot. The units run the same registered,
+immutable Compose identity and signed update lifecycle as `slabctl`.
 
 ```sh
 sudo systemctl status slab
@@ -256,6 +258,39 @@ workspace containing data that cannot be discarded.
 maintenance mode in Slab Agents, waits for active Runs and approvals to drain,
 creates a verified pre-update backup, applies one-shot migrations, and requires
 container health plus `/ready` before recording `UPDATED`.
+
+### Slab Agents update bridge
+
+Slab Agents does not receive the Docker socket or a privileged shell. It can
+write only to `/run/slab-update/requests` and can read only
+`/run/slab-update/status`. Those mounts map to a dedicated host directory whose
+sticky, write-only inbox accepts files from the container's fixed UID while
+its claim, processing, and status directories remain root-owned.
+
+The path unit invokes the hidden `slabctl update bridge-process` entry point.
+It atomically claims one fixed-schema JSON request, requires a canonical UUID,
+mode `0600`, one link, bounded size, an expiry no more than 15 minutes after
+creation, and an exact signed target for apply. Unknown keys and channels are
+rejected. Per-request status is written atomically before the worker removes
+the claimed request; an interrupted apply is marked uncertain and is never
+replayed automatically. The request and status contracts live in
+`contracts/update-bridge-request.schema.json` and
+`contracts/update-bridge-status.schema.json`.
+
+The writable inbox is a non-persistent tmpfs capped at 1 MiB and 256 inodes;
+the read-only status transport is a separate 8 MiB, 4,096-inode tmpfs. A timer
+sweeps abandoned uploads and old terminal statuses, and the worker processes
+exactly one request per rate-limited activation. Before executing anything, it
+copies at most 16,385 bytes and durably journals the claim on persistent
+root-owned storage. The watcher observes those claims so reboot recovery
+reconstructs an interrupted status instead of replaying an uncertain apply.
+
+Host-side diagnostics are available through:
+
+```sh
+sudo systemctl status slab-update-bridge.path slab-update-bridge.service
+sudo journalctl -u slab-update-bridge.service
+```
 
 ### Email metadata correction for affected 0.1.x releases
 

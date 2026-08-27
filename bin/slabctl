@@ -400,6 +400,11 @@ case "${1:-}" in
   update)
     update_action=${2:-check}
     shift 2 2>/dev/null || shift "$#"
+    if [ "$update_action" = bridge-process ]; then
+      [ "$#" -eq 0 ] || { slabctl_usage >&2; exit 2; }
+      slabctl_update_bridge_process
+      exit
+    fi
     update_channel=$(jq -r '.channel' "$SLABCTL_INSTALL_DIRECTORY/release-manifest.json")
     update_channel_explicit=0
     update_confirmed=0

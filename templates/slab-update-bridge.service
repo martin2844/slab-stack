@@ -1,0 +1,23 @@
+# slab-stack-managed: slab-update-bridge.service
+[Unit]
+Description=Process a constrained Slab update request
+Documentation=https://github.com/martin2844/slab-stack
+Wants=network-online.target
+After=network-online.target docker.service slab-update-bridge-prepare.service
+Requires=slab-update-bridge-prepare.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/slabctl update bridge-process
+TimeoutStartSec=3600
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectClock=yes
+ProtectControlGroups=yes
+ProtectKernelLogs=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+LockPersonality=yes
+RestrictRealtime=yes
+SystemCallArchitectures=native

@@ -4,6 +4,7 @@
 slab_install_management_cli() (
   bundle_root=$1
   install_directory=$2
+  bridge_activation=${3:-activate}
   host_root=${SLAB_MANAGEMENT_HOST_ROOT:-}
   owner_uid=${SLAB_MANAGEMENT_OWNER_UID:-0}
   trust_root=${SLAB_MANAGEMENT_TRUST_ROOT:-/}
@@ -263,5 +264,16 @@ EOF
     printf '%s\n' "$release_version" > "$temporary_install_version" || return 1
     chmod 0644 "$temporary_install_version"
     mv "$temporary_install_version" "$install_directory/VERSION"
+  fi
+
+  # This hook deliberately lives in the target bundle's management installer.
+  # An older slabctl sources and invokes this function during its first upgrade
+  # to a bridge-capable release, so the target must install its own units rather
+  # than relying on newly added caller logic.
+  if [ "$bridge_activation" = activate ]; then
+    # shellcheck source=installer/lib/systemd.sh
+    . "$bundle_root/installer/lib/systemd.sh"
+    slab_install_systemd_unit "$bundle_root" || return 1
+    slab_activate_update_bridge_path || return 1
   fi
 )

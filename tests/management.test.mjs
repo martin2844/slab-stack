@@ -30,7 +30,7 @@ function install(
     "sh",
     [
       "-c",
-      '. "$1"; . "$2"; slab_install_management_cli "$3" "$4"',
+      '. "$1"; . "$2"; slab_install_management_cli "$3" "$4" defer',
       "management-test",
       path.join(root, "installer/lib/prompts.sh"),
       path.join(root, "installer/lib/slabctl-install.sh"),

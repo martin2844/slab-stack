@@ -160,6 +160,18 @@ slab_render_installation() {
     fi
   done
 
+  # Older slabctl generations execute the target bundle's renderer before
+  # reconciling Compose. Provision the bounded request mount at this
+  # compatibility seam so the new bind mount exists before Docker captures it.
+  if [ -n "${SLABCTL_INSTALL_DIRECTORY:-}" ]; then
+    # shellcheck source=installer/lib/prompts.sh
+    . "$bundle_root/installer/lib/prompts.sh"
+    # shellcheck source=installer/lib/systemd.sh
+    . "$bundle_root/installer/lib/systemd.sh"
+    slab_install_systemd_unit "$bundle_root" || return 1
+    slab_activate_update_bridge_path || return 1
+  fi
+
   # The target release renderer is the compatibility seam used by older
   # slabctl clients. After all non-mutating validation succeeds, ensure secrets
   # introduced by this release exist before Docker Compose evaluates it.

@@ -1,0 +1,14 @@
+# slab-stack-managed: var-lib-slab\x2dupdate\x2dbridge-requests.mount
+[Unit]
+Description=Bounded Slab update request inbox
+Documentation=https://github.com/martin2844/slab-stack
+Before=slab.service slab-update-bridge.path
+
+[Mount]
+What=tmpfs
+Where=/var/lib/slab-update-bridge/requests
+Type=tmpfs
+Options=size=1M,nr_inodes=256,mode=1733,uid=0,gid=0,nosuid,nodev,noexec
+
+[Install]
+WantedBy=multi-user.target

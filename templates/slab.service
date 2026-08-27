@@ -3,8 +3,8 @@
 Description=Slab Agent Workspace
 Documentation=https://github.com/martin2844/slab-stack
 Wants=network-online.target
-After=network-online.target docker.service
-Requires=docker.service
+After=network-online.target docker.service slab-update-bridge-prepare.service
+Requires=docker.service slab-update-bridge-prepare.service
 PartOf=docker.service
 
 [Service]

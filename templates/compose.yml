@@ -297,6 +297,8 @@ services:
     networks: [edge, control]
     volumes:
       - agents_data:/data
+      - /var/lib/slab-update-bridge/requests:/run/slab-update/requests
+      - /var/lib/slab-update-bridge/status:/run/slab-update/status:ro
     secrets:
       - work_api_key
       - docs_api_key

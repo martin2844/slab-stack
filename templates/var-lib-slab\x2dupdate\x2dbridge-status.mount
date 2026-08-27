@@ -1,0 +1,14 @@
+# slab-stack-managed: var-lib-slab\x2dupdate\x2dbridge-status.mount
+[Unit]
+Description=Bounded Slab update status transport
+Documentation=https://github.com/martin2844/slab-stack
+Before=slab-update-bridge-prepare.service
+
+[Mount]
+What=tmpfs
+Where=/var/lib/slab-update-bridge/status
+Type=tmpfs
+Options=size=8M,nr_inodes=4096,mode=0755,uid=0,gid=0,nosuid,nodev,noexec
+
+[Install]
+WantedBy=multi-user.target

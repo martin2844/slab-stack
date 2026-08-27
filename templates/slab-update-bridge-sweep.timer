@@ -1,0 +1,13 @@
+# slab-stack-managed: slab-update-bridge-sweep.timer
+[Unit]
+Description=Periodically sweep the bounded Slab update bridge
+Documentation=https://github.com/martin2844/slab-stack
+
+[Timer]
+OnActiveSec=2min
+OnUnitInactiveSec=1min
+AccuracySec=10s
+Unit=slab-update-bridge.service
+
+[Install]
+WantedBy=timers.target

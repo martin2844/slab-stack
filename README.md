@@ -46,7 +46,9 @@ verifying the repository key fingerprint.
 The installed stack is registered as `slab.service`. systemd starts it after
 Docker and the network are available, stops it before Docker shuts down, and
 provides standard host lifecycle operations without exposing the Docker socket
-to Slab Agents.
+to Slab Agents. A separate `slab-update-bridge.path` watcher accepts only
+short-lived, schema-locked signed-update requests from Slab Agents; its
+root-owned worker publishes read-only status back to the application.
 
 Persistent agent memory is optional. The installer can leave it disabled,
 connect Slab Agents to managed Honcho, or activate a self-hosted Honcho Compose
@@ -160,6 +162,17 @@ metadata, waits for service and application readiness, and records a sanitized
 terminal state. Compatible failures restore the previous release files.
 Incompatible migration failures stop with `RECOVERY_REQUIRED` and point to the
 verified backup rather than claiming an unsafe image rollback worked.
+
+Slab Agents uses the same lifecycle through a narrow filesystem bridge. The
+application can request `check`, or `apply` with the exact version returned by
+a previous check. It cannot supply commands or update individual images, and
+it receives no Docker socket, root shell, release key, or writable status
+path. Requests expire after at most 15 minutes and request IDs are never
+executed twice during its validity window. The writable inbox is a 1 MiB,
+256-inode tmpfs and the read-only status transport is an 8 MiB, 4,096-inode
+tmpfs. Exactly one request runs per rate-limited worker activation, and
+execution starts only after the root worker durably journals the claimed
+request.
 
 Operational diagnosis is available without SSH archaeology:
 

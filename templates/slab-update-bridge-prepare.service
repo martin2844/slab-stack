@@ -1,0 +1,22 @@
+# slab-stack-managed: slab-update-bridge-prepare.service
+[Unit]
+Description=Prepare the Slab update request claim directory
+Documentation=https://github.com/martin2844/slab-stack
+After=var-lib-slab\x2dupdate\x2dbridge-requests.mount var-lib-slab\x2dupdate\x2dbridge-status.mount
+Requires=var-lib-slab\x2dupdate\x2dbridge-requests.mount var-lib-slab\x2dupdate\x2dbridge-status.mount
+PartOf=var-lib-slab\x2dupdate\x2dbridge-requests.mount var-lib-slab\x2dupdate\x2dbridge-status.mount
+Before=slab.service slab-update-bridge.path slab-update-bridge.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/install -d -o 0 -g 0 -m 0700 /var/lib/slab-update-bridge/requests/.claimed
+ExecStart=/usr/bin/install -d -o 10001 -g 0 -m 0700 /var/lib/slab-update-bridge/requests/.uploads
+ExecStart=/usr/bin/install -d -o 0 -g 0 -m 0755 /var/lib/slab-update-bridge/status/requests
+RemainAfterExit=yes
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/slab-update-bridge/requests /var/lib/slab-update-bridge/status
+
+[Install]
+WantedBy=multi-user.target

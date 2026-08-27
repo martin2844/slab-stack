@@ -1,0 +1,17 @@
+# slab-stack-managed: slab-update-bridge.path
+[Unit]
+Description=Watch for Slab update requests
+Documentation=https://github.com/martin2844/slab-stack
+After=slab-update-bridge-prepare.service
+Requires=slab-update-bridge-prepare.service
+
+[Path]
+PathExistsGlob=/var/lib/slab-update-bridge/requests/*.json
+PathExistsGlob=/var/lib/slab-update-bridge/requests/.claimed/*.json
+PathExistsGlob=/var/lib/slab-update-bridge/processing/*.json
+Unit=slab-update-bridge.service
+TriggerLimitIntervalSec=60
+TriggerLimitBurst=30
+
+[Install]
+WantedBy=multi-user.target

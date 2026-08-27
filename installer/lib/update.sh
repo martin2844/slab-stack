@@ -662,6 +662,624 @@ slabctl_update_install_management() {
   slab_install_management_cli "$bundle_root" "$SLABCTL_INSTALL_DIRECTORY"
 }
 
+slabctl_update_bridge_root() {
+  printf '%s\n' "${SLAB_UPDATE_BRIDGE_ROOT:-/var/lib/slab-update-bridge}"
+}
+
+slabctl_update_bridge_stat() {
+  "${SLABCTL_STAT_BIN:-stat}" -c "$1" "$2"
+}
+
+slabctl_update_bridge_sync() {
+  "${SLABCTL_SYNC_BIN:-sync}" -f "$1"
+}
+
+slabctl_update_bridge_remove_claim() {
+  bridge_root=$1
+  claimed=$2
+  rm -f "$claimed" || return 1
+  slabctl_update_bridge_sync "$bridge_root/processing"
+}
+
+slabctl_update_bridge_remove_inbox_file() {
+  inbox_directory=$1
+  inbox_file=$2
+  rm -f "$inbox_file" || return 1
+  slabctl_update_bridge_sync "$inbox_directory"
+}
+
+slabctl_update_bridge_validate_directories() {
+  bridge_root=$1
+  expected_root_uid=${SLABCTL_EXPECTED_OWNER_UID:-0}
+  for directory_spec in \
+    "$bridge_root:$expected_root_uid:755" \
+    "$bridge_root/requests:$expected_root_uid:1733" \
+    "$bridge_root/requests/.claimed:$expected_root_uid:700" \
+    "$bridge_root/requests/.uploads:${SLAB_UPDATE_BRIDGE_REQUEST_UID:-10001}:700" \
+    "$bridge_root/processing:$expected_root_uid:700" \
+    "$bridge_root/status:$expected_root_uid:755" \
+    "$bridge_root/status/requests:$expected_root_uid:755"
+  do
+    directory=${directory_spec%%:*}
+    remainder=${directory_spec#*:}
+    expected_uid=${remainder%%:*}
+    expected_mode=${remainder#*:}
+    [ -d "$directory" ] && [ ! -L "$directory" ] || {
+      slabctl_error "update bridge directory is missing or unsafe: $directory"
+      return 1
+    }
+    actual_uid=$(slabctl_update_bridge_stat '%u' "$directory") || return 1
+    actual_mode=$(slabctl_update_bridge_stat '%a' "$directory") || return 1
+    [ "$actual_uid" -eq "$expected_uid" ] && [ "$actual_mode" = "$expected_mode" ] || {
+      slabctl_error "update bridge directory has unsafe ownership or permissions: $directory"
+      return 1
+    }
+  done
+}
+
+slabctl_update_bridge_sweep() {
+  bridge_root=$1
+  inbox=$bridge_root/requests
+  uploads=$inbox/.uploads
+  status_requests=$bridge_root/status/requests
+  status_directory=$bridge_root/status
+  retention_minutes=${SLAB_UPDATE_BRIDGE_STATUS_RETENTION_MINUTES:-1440}
+  printf '%s\n' "$retention_minutes" | grep -Eq '^[1-9][0-9]*$' || return 1
+
+  for entry in "$inbox"/* "$inbox"/.[!.]* "$inbox"/..?*; do
+    [ -e "$entry" ] || [ -L "$entry" ] || continue
+    entry_name=${entry##*/}
+    case "$entry_name" in
+      .claimed | .uploads | *.json) continue ;;
+    esac
+    find "$entry" -xdev -depth -delete || return 1
+  done
+  find "$uploads" -xdev -mindepth 1 -mmin +1 -delete || return 1
+  for temporary_status in "$status_directory"/.status.* \
+    "$status_directory"/.latest.*
+  do
+    [ -e "$temporary_status" ] || [ -L "$temporary_status" ] || continue
+    rm -f "$temporary_status" || return 1
+  done
+
+  for status_file in "$status_requests"/*.json; do
+    [ -f "$status_file" ] && [ ! -L "$status_file" ] || continue
+    [ -n "$(find "$status_file" -prune -mmin "+$retention_minutes" -print)" ] ||
+      continue
+    status_state=$(jq -r '.state // empty' "$status_file" 2>/dev/null || true)
+    [ "$status_state" = running ] || rm -f "$status_file" || return 1
+  done
+  slabctl_update_bridge_sync "$inbox" || return 1
+  slabctl_update_bridge_sync "$uploads" || return 1
+  slabctl_update_bridge_sync "$status_requests" || return 1
+  slabctl_update_bridge_sync "$status_directory" || return 1
+  slabctl_update_bridge_compact_replay_ledger "$bridge_root" "$(date -u +%s)"
+}
+
+slabctl_update_bridge_evict_terminal_statuses() {
+  bridge_root=$1
+  request_id=$2
+  status_requests=$bridge_root/status/requests
+  maximum=${SLAB_UPDATE_BRIDGE_STATUS_MAXIMUM:-2048}
+  maximum_bytes=${SLAB_UPDATE_BRIDGE_STATUS_MAXIMUM_BYTES:-4194304}
+  publication_reserve_bytes=1048576
+  printf '%s\n' "$maximum" | grep -Eq '^[1-9][0-9]*$' || return 1
+  printf '%s\n' "$maximum_bytes" | grep -Eq '^[1-9][0-9]*$' || return 1
+  [ "$maximum" -le 3000 ] || {
+    slabctl_error "update bridge status maximum exceeds the safe transport reserve"
+    return 1
+  }
+  [ "$maximum_bytes" -le 6291456 ] || {
+    slabctl_error "update bridge status byte limit exceeds the safe transport reserve"
+    return 1
+  }
+
+  status_count=0
+  status_bytes=0
+  request_present=0
+  for status_file in "$status_requests"/*.json; do
+    [ -e "$status_file" ] || [ -L "$status_file" ] || continue
+    [ -f "$status_file" ] && [ ! -L "$status_file" ] || {
+      slabctl_error "update bridge status is unsafe: $status_file"
+      return 1
+    }
+    status_count=$((status_count + 1))
+    status_size=$(slabctl_update_bridge_stat '%s' "$status_file") || return 1
+    status_bytes=$((status_bytes + status_size))
+    [ "${status_file##*/}" != "$request_id.json" ] || request_present=1
+  done
+
+  while [ $((status_count + 1 - request_present)) -gt "$maximum" ] ||
+    [ $((status_bytes + publication_reserve_bytes)) -gt "$maximum_bytes" ]
+  do
+    oldest=
+    oldest_mtime=
+    for status_file in "$status_requests"/*.json; do
+      [ -f "$status_file" ] && [ ! -L "$status_file" ] || continue
+      [ "${status_file##*/}" != "$request_id.json" ] || continue
+      status_state=$(jq -r '.state // empty' "$status_file" 2>/dev/null || true)
+      [ "$status_state" != running ] || continue
+      status_mtime=$(slabctl_update_bridge_stat '%Y' "$status_file") || return 1
+      if [ -z "$oldest" ] || [ "$status_mtime" -lt "$oldest_mtime" ]; then
+        oldest=$status_file
+        oldest_mtime=$status_mtime
+      fi
+    done
+    [ -n "$oldest" ] || {
+      slabctl_error "update bridge status transport has no evictable terminal entries"
+      return 1
+    }
+    oldest_size=$(slabctl_update_bridge_stat '%s' "$oldest") || return 1
+    rm -f "$oldest" || return 1
+    status_count=$((status_count - 1))
+    status_bytes=$((status_bytes - oldest_size))
+  done
+  slabctl_update_bridge_sync "$status_requests"
+}
+
+slabctl_update_bridge_compact_replay_ledger() {
+  bridge_root=$1
+  now_epoch=$2
+  processing=$bridge_root/processing
+  ledger=$processing/replay-ledger
+  temporary=$(mktemp "$processing/.replay-ledger.XXXXXX") || return 1
+  if [ -e "$ledger" ] || [ -L "$ledger" ]; then
+    [ -f "$ledger" ] && [ ! -L "$ledger" ] || {
+      rm -f "$temporary"
+      slabctl_error "update bridge replay ledger is unsafe"
+      return 1
+    }
+    ledger_uid=$(slabctl_update_bridge_stat '%u' "$ledger") || return 1
+    ledger_mode=$(slabctl_update_bridge_stat '%a' "$ledger") || return 1
+    ledger_size=$(slabctl_update_bridge_stat '%s' "$ledger") || return 1
+    [ "$ledger_uid" -eq "${SLABCTL_EXPECTED_OWNER_UID:-0}" ] &&
+      [ "$ledger_mode" = 600 ] && [ "$ledger_size" -le 131072 ] || {
+        rm -f "$temporary"
+        slabctl_error "update bridge replay ledger has unsafe metadata"
+        return 1
+      }
+    jq -e --argjson now "$now_epoch" '
+      if (type == "object" and
+        ((keys | sort) == (["entries", "schemaVersion"] | sort)) and
+        .schemaVersion == 1 and
+        (.entries | type == "array" and length <= 1024 and all(
+          type == "object" and
+          ((keys | sort) == (["expiresAt", "requestId"] | sort)) and
+          (.requestId | type == "string" and
+            test("^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")) and
+          (.expiresAt | type == "number" and . == floor)
+        )))
+      then .entries |= map(select(.expiresAt > $now))
+      else error("invalid replay ledger")
+      end
+    ' "$ledger" > "$temporary" || {
+      rm -f "$temporary"
+      slabctl_error "update bridge replay ledger is invalid"
+      return 1
+    }
+  else
+    jq -n '{schemaVersion: 1, entries: []}' > "$temporary" || return 1
+  fi
+  chmod 0600 "$temporary"
+  slabctl_update_bridge_sync "$temporary" || {
+    rm -f "$temporary"
+    return 1
+  }
+  mv "$temporary" "$ledger" || return 1
+  slabctl_update_bridge_sync "$processing"
+}
+
+slabctl_update_bridge_replay_seen() {
+  bridge_root=$1
+  request_id=$2
+  jq -e --arg requestId "$request_id" \
+    'any(.entries[]; .requestId == $requestId)' \
+    "$bridge_root/processing/replay-ledger" >/dev/null 2>&1
+}
+
+slabctl_update_bridge_record_replay() {
+  bridge_root=$1
+  request_id=$2
+  expires_at=$3
+  processing=$bridge_root/processing
+  ledger=$processing/replay-ledger
+  temporary=$(mktemp "$processing/.replay-ledger.XXXXXX") || return 1
+  jq -e --arg requestId "$request_id" --argjson expiresAt "$expires_at" '
+    if any(.entries[]; .requestId == $requestId) then
+      error("duplicate request")
+    elif (.entries | length) >= 1024 then
+      error("replay ledger is full")
+    else
+      .entries += [{requestId: $requestId, expiresAt: $expiresAt}]
+    end
+  ' "$ledger" > "$temporary" || {
+    rm -f "$temporary"
+    return 1
+  }
+  chmod 0600 "$temporary"
+  slabctl_update_bridge_sync "$temporary" || {
+    rm -f "$temporary"
+    return 1
+  }
+  mv "$temporary" "$ledger" || return 1
+  slabctl_update_bridge_sync "$processing"
+}
+
+slabctl_update_bridge_publish_status() {
+  bridge_root=$1
+  request_id=$2
+  action=$3
+  state=$4
+  channel=$5
+  target=$6
+  requested_at=$7
+  started_at=$8
+  completed_at=$9
+  result_path=${10}
+  error_code=${11}
+  error_message=${12}
+  status_directory=$bridge_root/status
+  request_status=$status_directory/requests/$request_id.json
+  result_json=null
+  if [ -n "$result_path" ]; then
+    result_size=$(slabctl_update_bridge_stat '%s' "$result_path") || return 1
+    [ "$result_size" -le 262144 ] || {
+      slabctl_error "update bridge result exceeds the safe status limit"
+      return 1
+    }
+    result_json=$(jq -ec 'if type == "object" then . else error("not an object") end' \
+      "$result_path") || return 1
+  fi
+  slabctl_update_bridge_evict_terminal_statuses "$bridge_root" "$request_id" ||
+    return 1
+  temporary_status=$(mktemp "$status_directory/.status.XXXXXX") || return 1
+  temporary_latest=$(mktemp "$status_directory/.latest.XXXXXX") || {
+    rm -f "$temporary_status"
+    return 1
+  }
+  jq -n --argjson result "$result_json" \
+    --arg requestId "$request_id" \
+    --arg action "$action" \
+    --arg state "$state" \
+    --arg channel "$channel" \
+    --arg target "$target" \
+    --arg requestedAt "$requested_at" \
+    --arg startedAt "$started_at" \
+    --arg completedAt "$completed_at" \
+    --arg errorCode "$error_code" \
+    --arg errorMessage "$error_message" '
+      {
+        schemaVersion: 1,
+        requestId: $requestId,
+        action: ($action | if length == 0 then null else . end),
+        state: $state,
+        channel: ($channel | if length == 0 then null else . end),
+        target: ($target | if length == 0 then null else . end),
+        requestedAt: ($requestedAt | if length == 0 then null else . end),
+        startedAt: $startedAt,
+        completedAt: ($completedAt | if length == 0 then null else . end),
+        result: $result,
+        error: (if $errorCode | length == 0 then null else
+          {code: $errorCode, message: $errorMessage} end)
+      }
+    ' > "$temporary_status" || {
+      rm -f "$temporary_status" "$temporary_latest"
+      return 1
+    }
+  chmod 0644 "$temporary_status"
+  slabctl_update_bridge_sync "$temporary_status" || {
+    rm -f "$temporary_status" "$temporary_latest"
+    return 1
+  }
+  cp "$temporary_status" "$temporary_latest" || {
+    rm -f "$temporary_status" "$temporary_latest"
+    return 1
+  }
+  chmod 0644 "$temporary_latest"
+  slabctl_update_bridge_sync "$temporary_latest" || {
+    rm -f "$temporary_status" "$temporary_latest"
+    return 1
+  }
+  mv "$temporary_status" "$request_status" || {
+    rm -f "$temporary_status" "$temporary_latest"
+    return 1
+  }
+  slabctl_update_bridge_sync "$status_directory/requests" || return 1
+  mv "$temporary_latest" "$status_directory/latest.json" || return 1
+  slabctl_update_bridge_sync "$status_directory"
+}
+
+slabctl_update_bridge_reconcile_latest() {
+  bridge_root=$1
+  request_status=$2
+  status_directory=$bridge_root/status
+  temporary_latest=$(mktemp "$status_directory/.latest.XXXXXX") || return 1
+  cp "$request_status" "$temporary_latest" || {
+    rm -f "$temporary_latest"
+    return 1
+  }
+  chmod 0644 "$temporary_latest"
+  slabctl_update_bridge_sync "$temporary_latest" || {
+    rm -f "$temporary_latest"
+    return 1
+  }
+  mv "$temporary_latest" "$status_directory/latest.json" || {
+    rm -f "$temporary_latest"
+    return 1
+  }
+  slabctl_update_bridge_sync "$status_directory"
+}
+
+slabctl_update_bridge_failure_message() {
+  error_path=$1
+  fallback=$2
+  # Only expose bounded slabctl-owned diagnostics. Third-party tools may echo
+  # credential-bearing URLs or host details to stderr.
+  message=$(sed -n 's/^slabctl: //p' "$error_path" | tail -n 1 |
+    tr '\n\r\t' '   ' | sed 's/[[:cntrl:]]/ /g' | cut -c1-500)
+  [ -n "$message" ] || message=$fallback
+  printf '%s\n' "$message"
+}
+
+slabctl_update_bridge_recover_abandoned() {
+  bridge_root=$1
+  processing=$bridge_root/processing
+  for abandoned in "$processing"/*.json; do
+    [ -e "$abandoned" ] || [ -L "$abandoned" ] || continue
+    request_id=${abandoned##*/}
+    request_id=${request_id%.json}
+    if ! printf '%s\n' "$request_id" |
+      grep -Eq '^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+    then
+      rm -f "$abandoned"
+      continue
+    fi
+    existing_status=$bridge_root/status/requests/$request_id.json
+    action=
+    channel=
+    target=
+    requested_at=
+    started_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+    if [ -e "$existing_status" ] || [ -L "$existing_status" ]; then
+      [ -f "$existing_status" ] && [ ! -L "$existing_status" ] || {
+        slabctl_error "update bridge status is unsafe: $existing_status"
+        return 1
+      }
+      existing_state=$(jq -er '.state' "$existing_status" 2>/dev/null) || {
+        slabctl_error "update bridge status is invalid: $existing_status"
+        return 1
+      }
+      if [ "$existing_state" != running ]; then
+        slabctl_update_bridge_reconcile_latest "$bridge_root" \
+          "$existing_status" || return 1
+        slabctl_update_bridge_remove_claim "$bridge_root" "$abandoned" || return 1
+        continue
+      fi
+      action=$(jq -r '.action // empty' "$existing_status") || return 1
+      channel=$(jq -r '.channel // empty' "$existing_status") || return 1
+      target=$(jq -r '.target // empty' "$existing_status") || return 1
+      requested_at=$(jq -r '.requestedAt // empty' "$existing_status") || return 1
+      started_at=$(jq -r '.startedAt // empty' "$existing_status" 2>/dev/null || true)
+      [ -n "$started_at" ] || started_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+    fi
+    completed_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+    slabctl_update_bridge_publish_status "$bridge_root" "$request_id" \
+      "$action" failed "$channel" "$target" "$requested_at" "$started_at" \
+      "$completed_at" "" bridge_interrupted \
+      "The host update worker stopped before it could confirm the result; refresh status before retrying." || return 1
+    slabctl_update_bridge_remove_claim "$bridge_root" "$abandoned" || return 1
+  done
+  rm -f "$processing"/.snapshot.* "$processing"/.claim.* "$processing"/.result.* \
+    "$processing"/.error.*
+}
+
+slabctl_update_bridge_validate_request() {
+  request_path=$1
+  request_id=$2
+  now_epoch=$3
+  jq -er --arg requestId "$request_id" --argjson now "$now_epoch" '
+    def exact_keys($expected):
+      type == "object" and ((keys | sort) == ($expected | sort));
+    def semver:
+      type == "string" and
+      test("^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)(?:\\.(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$");
+    (try (.requestedAt | fromdateiso8601) catch null) as $requested |
+    (try (.expiresAt | fromdateiso8601) catch null) as $expires |
+    exact_keys(["schemaVersion", "requestId", "action", "channel", "target", "requestedAt", "expiresAt"]) and
+    .schemaVersion == 1 and
+    .requestId == $requestId and
+    (.action | IN("check", "apply")) and
+    (.channel | IN("stable", "candidate")) and
+    ((.action == "check" and (.target == null or (.target | semver))) or
+      (.action == "apply" and (.target | semver))) and
+    (.requestedAt | type == "string" and
+      test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$") and
+      $requested != null) and
+    (.expiresAt | type == "string" and
+      test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$") and
+      $expires != null) and
+    $requested <= ($now + 60) and
+    $expires > $now and
+    $expires > $requested and
+    ($expires - $requested) <= 900 and
+    ($requested | todateiso8601) == .requestedAt and
+    ($expires | todateiso8601) == .expiresAt
+  ' "$request_path" >/dev/null 2>&1
+}
+
+slabctl_update_bridge_process() {
+  bridge_root=$(slabctl_update_bridge_root)
+  slabctl_update_bridge_validate_directories "$bridge_root" || return 1
+  slabctl_update_bridge_sweep "$bridge_root" || return 1
+  slabctl_update_bridge_recover_abandoned "$bridge_root" || return 1
+  inbox=$bridge_root/requests
+  staging=$inbox/.claimed
+  processing=$bridge_root/processing
+  expected_request_uid=${SLAB_UPDATE_BRIDGE_REQUEST_UID:-10001}
+
+  for candidate in "$staging"/*.json "$inbox"/*.json; do
+    [ -e "$candidate" ] || [ -L "$candidate" ] || continue
+    request_name=${candidate##*/}
+    request_id=${request_name%.json}
+    if ! printf '%s\n' "$request_id" |
+      grep -Eq '^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+    then
+      case "$candidate" in
+        "$staging"/*)
+          slabctl_update_bridge_remove_inbox_file "$staging" "$candidate" || return 1
+          ;;
+        *)
+          slabctl_update_bridge_remove_inbox_file "$inbox" "$candidate" || return 1
+          ;;
+      esac
+      return 0
+    fi
+    status_path=$bridge_root/status/requests/$request_id.json
+    if [ -e "$status_path" ] || [ -L "$status_path" ]; then
+      case "$candidate" in
+        "$staging"/*)
+          slabctl_update_bridge_remove_inbox_file "$staging" "$candidate" || return 1
+          ;;
+        *)
+          slabctl_update_bridge_remove_inbox_file "$inbox" "$candidate" || return 1
+          ;;
+      esac
+      return 0
+    fi
+    if slabctl_update_bridge_replay_seen "$bridge_root" "$request_id"; then
+      duplicate_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+      publish_status=0
+      slabctl_update_bridge_publish_status "$bridge_root" "$request_id" \
+        "" failed "" "" "" "$duplicate_at" "$duplicate_at" "" \
+        duplicate_request "This update request ID was already accepted." ||
+        publish_status=$?
+      case "$candidate" in
+        "$staging"/*)
+          slabctl_update_bridge_remove_inbox_file "$staging" "$candidate" || return 1
+          ;;
+        *)
+          slabctl_update_bridge_remove_inbox_file "$inbox" "$candidate" || return 1
+          ;;
+      esac
+      [ "$publish_status" -eq 0 ] || return "$publish_status"
+      return 0
+    fi
+    case "$candidate" in
+      "$staging"/*) staged=$candidate ;;
+      *)
+        staged=$staging/$request_name
+        if [ -e "$staged" ] || [ -L "$staged" ]; then
+          slabctl_update_bridge_remove_inbox_file "$inbox" "$candidate" || return 1
+          return 0
+        fi
+        mv "$candidate" "$staged" || continue
+        slabctl_update_bridge_sync "$staging" || return 1
+        slabctl_update_bridge_sync "$inbox" || return 1
+        ;;
+    esac
+    claimed=$processing/$request_id.json
+    started_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+    if [ -L "$staged" ] || [ ! -f "$staged" ] ||
+      [ "$(slabctl_update_bridge_stat '%u' "$staged" 2>/dev/null || printf invalid)" != "$expected_request_uid" ] ||
+      [ "$(slabctl_update_bridge_stat '%a' "$staged" 2>/dev/null || printf invalid)" != 600 ] ||
+      [ "$(slabctl_update_bridge_stat '%h' "$staged" 2>/dev/null || printf invalid)" != 1 ] ||
+      ! request_size=$(slabctl_update_bridge_stat '%s' "$staged" 2>/dev/null) ||
+      ! printf '%s\n' "$request_size" | grep -Eq '^[0-9]+$' ||
+      [ "$request_size" -lt 2 ] || [ "$request_size" -gt 16384 ]
+    then
+      publish_status=0
+      slabctl_update_bridge_publish_status "$bridge_root" "$request_id" \
+        "" failed "" "" "" "$started_at" "$started_at" "" \
+        invalid_request "The update request file was unsafe or malformed." ||
+        publish_status=$?
+      slabctl_update_bridge_remove_inbox_file "$staging" "$staged" || return 1
+      [ "$publish_status" -eq 0 ] || return "$publish_status"
+      return 0
+    fi
+    claim_temporary=$(mktemp "$processing/.claim.XXXXXX") || return 1
+    result=$(mktemp "$processing/.result.XXXXXX") || {
+      rm -f "$claim_temporary"
+      return 1
+    }
+    error=$(mktemp "$processing/.error.XXXXXX") || {
+      rm -f "$claim_temporary" "$result"
+      return 1
+    }
+    chmod 0600 "$claim_temporary" "$result" "$error"
+    if ! dd if="$staged" of="$claim_temporary" bs=16385 count=1 status=none; then
+      rm -f "$claim_temporary" "$result" "$error"
+      return 1
+    fi
+    snapshot_size=$(slabctl_update_bridge_stat '%s' "$claim_temporary") || return 1
+    now_epoch=$(date -u +%s)
+    if [ "$snapshot_size" -lt 2 ] || [ "$snapshot_size" -gt 16384 ] ||
+      ! slabctl_update_bridge_validate_request "$claim_temporary" "$request_id" "$now_epoch"
+    then
+      publish_status=0
+      slabctl_update_bridge_publish_status "$bridge_root" "$request_id" \
+        "" failed "" "" "" "$started_at" "$started_at" "" \
+        invalid_request "The update request was invalid, expired, or exceeded its lifetime." ||
+        publish_status=$?
+      rm -f "$claim_temporary" "$result" "$error"
+      slabctl_update_bridge_remove_inbox_file "$staging" "$staged" || return 1
+      [ "$publish_status" -eq 0 ] || return "$publish_status"
+      return 0
+    fi
+    action=$(jq -er '.action' "$claim_temporary") || return 1
+    channel=$(jq -er '.channel' "$claim_temporary") || return 1
+    target=$(jq -r '.target // empty' "$claim_temporary") || return 1
+    requested_at=$(jq -er '.requestedAt' "$claim_temporary") || return 1
+    expires_epoch=$(jq -er '.expiresAt | fromdateiso8601' "$claim_temporary") || return 1
+    [ ! -e "$claimed" ] && [ ! -L "$claimed" ] || return 1
+    mv "$claim_temporary" "$claimed" || return 1
+    slabctl_update_bridge_sync "$claimed" || return 1
+    slabctl_update_bridge_sync "$processing" || return 1
+    slabctl_update_bridge_record_replay "$bridge_root" "$request_id" \
+      "$expires_epoch" || return 1
+    slabctl_update_bridge_remove_inbox_file "$staging" "$staged" || return 1
+    slabctl_update_bridge_publish_status "$bridge_root" "$request_id" \
+      "$action" running "$channel" "$target" "$requested_at" "$started_at" \
+      "" "" "" "" || return 1
+
+    operation_status=0
+    result_for_status=
+    case "$action" in
+      check)
+        slabctl_update_check "$channel" json "$target" > "$result" 2> "$error" ||
+          operation_status=$?
+        [ "$operation_status" -ne 0 ] || result_for_status=$result
+        ;;
+      apply)
+        if slabctl_update_apply "$channel" 1 "$target" > "$result" 2> "$error"; then
+          : > "$result"
+          if slabctl_update_check "$channel" json "$target" > "$result" 2>> "$error"; then
+            result_for_status=$result
+          else
+            : > "$result"
+          fi
+        else
+          operation_status=$?
+        fi
+        ;;
+    esac
+    completed_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+    if [ "$operation_status" -eq 0 ]; then
+      slabctl_update_bridge_publish_status "$bridge_root" "$request_id" \
+        "$action" succeeded "$channel" "$target" "$requested_at" "$started_at" \
+        "$completed_at" "$result_for_status" "" "" || return 1
+    else
+      error_message=$(slabctl_update_bridge_failure_message "$error" \
+        "The signed update operation failed.")
+      slabctl_update_bridge_publish_status "$bridge_root" "$request_id" \
+        "$action" failed "$channel" "$target" "$requested_at" "$started_at" \
+        "$completed_at" "" update_failed "$error_message" || return 1
+    fi
+    rm -f "$result" "$error"
+    slabctl_update_bridge_remove_claim "$bridge_root" "$claimed" || return 1
+    return "$operation_status"
+  done
+}
+
 slabctl_update_check() (
   channel=${1:-$(jq -r '.channel' "$SLABCTL_INSTALL_DIRECTORY/release-manifest.json")}
   output_format=${2:-text}
