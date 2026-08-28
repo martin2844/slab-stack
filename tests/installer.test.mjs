@@ -9,6 +9,12 @@ import { fileURLToPath } from "node:url";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const installer = path.join(root, "installer", "install.sh");
 
+test("interactive installation confirmation defaults to yes", () => {
+  const source = fs.readFileSync(installer, "utf8");
+  assert.match(source, /Install Slab with this configuration\?%s \[Y\/n\]/);
+  assert.match(source, /n \| N \| no \| NO\) echo "Installation cancelled/);
+});
+
 function createFixture() {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "slab-installer-"));
   const binaries = path.join(directory, "bin");

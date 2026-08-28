@@ -216,10 +216,12 @@ slab_validate_install_target_state
 slab_ui_print_install_plan "$detected_platform" "$requested_version"
 
 if [ "$SLAB_NON_INTERACTIVE" -eq 0 ]; then
-  printf '\n%sInstall Slab with this configuration?%s [y/N]: ' \
+  printf '\n%sInstall Slab with this configuration?%s [Y/n]: ' \
     "$SLAB_UI_PROMPT" "$SLAB_UI_RESET" > /dev/tty
   IFS= read -r confirmation < /dev/tty
-  case "$confirmation" in y | Y | yes | YES) ;; *) echo "Installation cancelled."; exit 0 ;; esac
+  case "$confirmation" in
+    n | N | no | NO) echo "Installation cancelled."; exit 0 ;;
+  esac
 fi
 
 if [ "$SLAB_DRY_RUN" -eq 1 ]; then
