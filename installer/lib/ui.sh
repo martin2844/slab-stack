@@ -76,6 +76,18 @@ slab_ui_docker_plan() {
 slab_ui_print_install_plan() {
   platform=$1
   requested_version=$2
+  if [ "$SLAB_ACCESS_MODE" = private ]; then
+    if [ "$SLAB_PRIVATE_BIND_IP" = 127.0.0.1 ]; then
+      access_label="this server only (SSH tunnel)"
+      access_explanation="Local-only mode does not publish Slab on the network."
+    else
+      access_label="server IP with password (HTTP)"
+      access_explanation="Server IP mode publishes port $SLAB_PRIVATE_PORT and protects Slab with your administrator password."
+    fi
+  else
+    access_label="domain with password (HTTPS)"
+    access_explanation="Domain mode configures encrypted HTTPS after your domain points to this server."
+  fi
   cat <<EOF
 
 Installation plan
@@ -84,7 +96,7 @@ Installation plan
   Host:       $platform
   Release:    $requested_version
   Slab files: $SLAB_INSTALL_DIRECTORY
-  Open in:    $SLAB_ACCESS_MODE mode
+  Open in:    $access_label
   Address:    $SLAB_PUBLIC_URL
   Memory:     $SLAB_MEMORY_MODE
   Docker:     $(slab_ui_docker_plan)
@@ -94,9 +106,7 @@ Slab may install required server packages and Docker. It keeps its settings in
 $SLAB_INSTALL_DIRECTORY. Your workspace data is stored separately and is not
 removed by normal restarts or updates.
 
-Private mode does not expose Slab publicly. Domain mode makes Slab available at
-the address above and automatically configures HTTPS after your domain points
-to this server.
+$access_explanation
 EOF
 }
 

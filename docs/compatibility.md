@@ -26,7 +26,8 @@ hosts. Ubuntu 26.04 arm64 is also outside the current stable promise.
   when absent.
 - Service images are public, digest-pinned, and publish both `linux/amd64` and
   `linux/arm64` manifests.
-- Private mode binds the panel to `127.0.0.1:3009`; use an SSH tunnel.
+- The guided server-IP mode binds the panel to the VPS address on port `3009`.
+  Declarative installations may still choose a loopback-only binding.
 - Domain mode uses Caddy for reverse proxying and automatic TLS.
 - Codex CLI `0.148.0` is the stable runtime pairing for Slab `0.1.0`.
 - Gemini CLI `0.56.0` is an experimental account-authenticated runtime. Its

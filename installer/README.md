@@ -48,7 +48,7 @@ The interactive flow is intentionally suitable for a clean VPS. It explains
 each decision before changing the host:
 
 1. choose the root-private installation directory;
-2. choose SSH-only private access or a DNS-backed domain with automatic TLS;
+2. choose direct server-IP access or a DNS-backed domain with automatic TLS;
 3. leave persistent memory disabled or configure managed/self-hosted Honcho;
 4. review the exact release, Docker action, URL, storage, and systemd plan;
 5. provision missing host tools and Docker, then start and health-check Slab;

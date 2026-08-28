@@ -174,12 +174,11 @@ else
     echo "Interactive installation requires /dev/tty; use --non-interactive explicitly." >&2
     exit 2
   }
+  SLAB_PRIVATE_PORT=3009
+  SLAB_COMPOSE_PROJECT_NAME=slab
   slab_ui_section "Configure this workspace"
   echo "Answer a few questions before any packages, files, or services are changed."
   slab_collect_interactive_configuration
-  SLAB_PRIVATE_BIND_IP=127.0.0.1
-  SLAB_PRIVATE_PORT=3009
-  SLAB_COMPOSE_PROJECT_NAME=slab
 fi
 
 slab_run_bootstrap_preflight "$SLAB_INSTALL_DIRECTORY"
@@ -216,10 +215,12 @@ slab_validate_install_target_state
 slab_ui_print_install_plan "$detected_platform" "$requested_version"
 
 if [ "$SLAB_NON_INTERACTIVE" -eq 0 ]; then
-  printf '\n%sInstall Slab with this configuration?%s [y/N]: ' \
+  printf '\n%sInstall Slab with this configuration?%s [Y/n]: ' \
     "$SLAB_UI_PROMPT" "$SLAB_UI_RESET" > /dev/tty
   IFS= read -r confirmation < /dev/tty
-  case "$confirmation" in y | Y | yes | YES) ;; *) echo "Installation cancelled."; exit 0 ;; esac
+  case "$confirmation" in
+    n | N | no | NO) echo "Installation cancelled."; exit 0 ;;
+  esac
 fi
 
 if [ "$SLAB_DRY_RUN" -eq 1 ]; then
@@ -377,19 +378,28 @@ SLAB_INSTALL_STARTED=0
 slab_ui_print_success
 if [ "$SLAB_ACCESS_MODE" = private ]; then
   slab_ui_section "Open Slab in your browser"
-  cat <<EOF
-Slab is private, so it cannot be opened directly with the server's IP address.
+  if [ "$SLAB_PRIVATE_BIND_IP" = 127.0.0.1 ]; then
+    cat <<EOF
+Slab was configured for local-only access.
 
-1. On your own computer, open a new terminal.
-2. Run this command and replace the last two values with your SSH login:
+1. On your computer, run:
 
    ssh -L $SLAB_PRIVATE_PORT:127.0.0.1:$SLAB_PRIVATE_PORT <your-user>@<server-ip>
 
-3. Keep that terminal open.
-4. Open this address in your browser:
-
-   http://127.0.0.1:$SLAB_PRIVATE_PORT
+2. Keep that terminal open and visit $SLAB_PUBLIC_URL in your browser.
 EOF
+  else
+    cat <<EOF
+Open this address on your computer:
+
+   $SLAB_PUBLIC_URL
+
+Sign in with the administrator password you just created.
+
+This address uses HTTP. For encrypted HTTPS, reinstall using domain access.
+If the page does not open, allow inbound TCP port $SLAB_PRIVATE_PORT in your VPS firewall.
+EOF
+  fi
 else
   slab_ui_section "Open Slab in your browser"
   echo "Your Slab address is: $SLAB_PUBLIC_URL"

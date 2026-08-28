@@ -106,6 +106,18 @@ test("validates access mode, domain, and optional ACME email", () => {
   assert.notEqual(run("slab_validate_email invalid").status, 0);
 });
 
+test("validates and detects the server IPv4 address used for browser access", () => {
+  assert.equal(run("slab_validate_server_ipv4 203.0.113.10").status, 0);
+  assert.notEqual(run("slab_validate_server_ipv4 127.0.0.1").status, 0);
+  assert.notEqual(run("slab_validate_server_ipv4 not-an-ip").status, 0);
+
+  const detected = run("slab_detect_server_ipv4", {
+    SLAB_DETECTED_SERVER_IPV4: "203.0.113.20",
+  });
+  assert.equal(detected.status, 0, detected.stderr);
+  assert.equal(detected.stdout.trim(), "203.0.113.20");
+});
+
 test("password validation requires matching bounded values", () => {
   assert.equal(
     run("slab_validate_passwords strong-password strong-password").status,
@@ -133,9 +145,9 @@ test("interactive guidance explains storage and browser access in plain language
   assert.match(source, /Both survive normal restarts and updates/);
   assert.match(source, /Keep the default unless/);
   assert.match(source, /How do you want to open Slab\?/);
-  assert.match(source, /Best for testing/);
+  assert.match(source, /Open Slab at http:\/\/YOUR_SERVER_IP:3009/);
   assert.match(source, /Best for regular use/);
-  assert.match(source, /Choose 1 if you are unsure/);
+  assert.match(source, /Choose 1 for the quickest setup/);
   assert.match(source, /Enter 1 for private access or 2 for domain access/);
 });
 

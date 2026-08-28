@@ -9,6 +9,12 @@ import { fileURLToPath } from "node:url";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const installer = path.join(root, "installer", "install.sh");
 
+test("interactive installation confirmation defaults to yes", () => {
+  const source = fs.readFileSync(installer, "utf8");
+  assert.match(source, /Install Slab with this configuration\?%s \[Y\/n\]/);
+  assert.match(source, /n \| N \| no \| NO\) echo "Installation cancelled/);
+});
+
 function createFixture() {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "slab-installer-"));
   const binaries = path.join(directory, "bin");
@@ -89,7 +95,7 @@ test("non-interactive dry-run validates inputs without writing installation data
     assert.match(result.stdout, /Installation plan/);
     assert.match(result.stdout, /Reuse the installed Docker Engine and Compose V2/);
     assert.match(result.stdout, /automatic after a server reboot/);
-    assert.match(result.stdout, /private mode/);
+    assert.match(result.stdout, /this server only \(SSH tunnel\)/);
     assert.match(result.stdout, /Dry run complete/);
     assert.doesNotMatch(result.stdout, /\u001b\[/);
     assert.equal(fs.existsSync(fixture.installDirectory), false);
