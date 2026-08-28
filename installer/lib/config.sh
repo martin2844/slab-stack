@@ -152,8 +152,8 @@ slab_finalize_noninteractive_config() {
   slab_validate_memory_mode "$SLAB_MEMORY_MODE" || return 1
   slab_validate_honcho_workspace "$SLAB_HONCHO_WORKSPACE_ID" || return 1
   slab_validate_memory_context_tokens "$SLAB_MEMORY_MAX_CONTEXT_TOKENS" || return 1
-  [ "$SLAB_PRIVATE_BIND_IP" = 127.0.0.1 ] || {
-    slab_config_error "The first installer release only permits loopback private binding (127.0.0.1)."
+  slab_is_ipv4_address "$SLAB_PRIVATE_BIND_IP" || {
+    slab_config_error "SLAB_PRIVATE_BIND_IP must be an IPv4 address."
     return 1
   }
 
@@ -172,7 +172,7 @@ slab_finalize_noninteractive_config() {
     SLAB_ACME_EMAIL=
     # Consumed by the versioned installer after this sourced helper returns.
     # shellcheck disable=SC2034
-    SLAB_PUBLIC_URL=http://127.0.0.1:$SLAB_PRIVATE_PORT
+    SLAB_PUBLIC_URL=http://$SLAB_PRIVATE_BIND_IP:$SLAB_PRIVATE_PORT
   fi
 
   case "$SLAB_MEMORY_MODE" in

@@ -69,6 +69,50 @@ test("loads and validates a declarative private installer config", () => {
   }
 });
 
+test("supports direct server-IP binding for a declarative installation", () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "slab-config-ip-"));
+  const filename = path.join(directory, "install.conf");
+  fs.writeFileSync(
+    filename,
+    [
+      `SLAB_INSTALL_DIRECTORY=${directory}/installation`,
+      "SLAB_ACCESS_MODE=private",
+      "SLAB_PRIVATE_BIND_IP=203.0.113.10",
+      "SLAB_PRIVATE_PORT=3009",
+      "SLAB_COMPOSE_PROJECT_NAME=slab-ip-test",
+      "",
+    ].join("\n"),
+    { mode: 0o600 },
+  );
+  try {
+    const result = spawnSync(
+      "sh",
+      [
+        "-c",
+        'set -e; . "$1"; . "$2"; slab_load_noninteractive_config "$3"; slab_finalize_noninteractive_config; printf "%s" "$SLAB_PUBLIC_URL"',
+        "config",
+        prompts,
+        config,
+        filename,
+      ],
+      {
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          SLAB_CONFIG_OWNER_UID: String(process.getuid()),
+          SLAB_CONFIG_TRUST_ROOT: directory,
+          SLAB_INSTALL_OWNER_UID: String(process.getuid()),
+          SLAB_INSTALL_TRUST_ROOT: directory,
+        },
+      },
+    );
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stdout, "http://203.0.113.10:3009");
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test("rejects unknown keys and group-readable config", () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "slab-config-bad-"));
   const filename = path.join(directory, "install.conf");

@@ -143,6 +143,57 @@ slab_validate_email() {
     slab_prompt_error "Enter a valid email address or leave it empty."
 }
 
+slab_is_ipv4_address() {
+  printf '%s\n' "$1" | awk -F. '
+    NF != 4 { exit 1 }
+    {
+      for (i = 1; i <= 4; i++) {
+        if ($i !~ /^[0-9]+$/ || $i < 0 || $i > 255) exit 1
+      }
+    }
+  '
+}
+
+slab_validate_server_ipv4() {
+  server_ip=$1
+  slab_is_ipv4_address "$server_ip" || {
+    slab_prompt_error "Enter this server's IPv4 address, such as 203.0.113.10."
+    return 1
+  }
+  case "$server_ip" in
+    0.0.0.0 | 127.*)
+      slab_prompt_error "Enter the address you use to reach this server, not $server_ip."
+      return 1
+      ;;
+  esac
+}
+
+slab_detect_server_ipv4() {
+  detected_ip=${SLAB_DETECTED_SERVER_IPV4:-}
+  if [ -z "$detected_ip" ] && [ -n "${SSH_CONNECTION:-}" ]; then
+    # SSH_CONNECTION is: client IP, client port, server IP, server port.
+    # shellcheck disable=SC2086
+    set -- $SSH_CONNECTION
+    detected_ip=${3:-}
+  fi
+  if slab_is_ipv4_address "$detected_ip"; then
+    printf '%s\n' "$detected_ip"
+    return 0
+  fi
+  if command -v hostname >/dev/null 2>&1; then
+    detected_addresses=$(hostname -I 2>/dev/null || true)
+    # shellcheck disable=SC2086
+    for detected_ip in $detected_addresses; do
+      if slab_is_ipv4_address "$detected_ip"; then
+        case "$detected_ip" in 127.*) continue ;; esac
+        printf '%s\n' "$detected_ip"
+        return 0
+      fi
+    done
+  fi
+  return 1
+}
+
 slab_validate_passwords() {
   password=$1
   confirmation=$2
@@ -239,10 +290,10 @@ slab_collect_interactive_configuration() {
 
   slab_prompt_heading "How do you want to open Slab?"
   slab_prompt_note \
-    "1) Private — Best for testing. Only you can open it through SSH." \
+    "1) Server IP — Open Slab at http://YOUR_SERVER_IP:3009." \
     "2) Domain  — Best for regular use. Open it at an HTTPS address such as" \
     "             agents.example.com. You need a domain or subdomain." \
-    "Choose 1 if you are unsure."
+    "Choose 1 for the quickest setup. Your Slab password is still required."
   slab_prompt_value "Choose 1 or 2" "1"
   case "$SLAB_PROMPT_VALUE" in
     1 | private) SLAB_ACCESS_MODE=private ;;
@@ -254,10 +305,15 @@ slab_collect_interactive_configuration() {
   SLAB_DOMAIN=
   SLAB_ACME_EMAIL=
   if [ "$SLAB_ACCESS_MODE" = domain ]; then
+    SLAB_PRIVATE_BIND_IP=127.0.0.1
+    detected_server_ip=$(slab_detect_server_ipv4 || true)
     slab_prompt_note \
       "Enter the address you want to use, without https:// or a port." \
       "Before Slab can open there, create a DNS A record that points this" \
       "address to the public IP of this server. Slab will set up HTTPS for you."
+    if [ -n "$detected_server_ip" ]; then
+      slab_prompt_note "Detected server IP for your DNS A record: $detected_server_ip"
+    fi
     slab_prompt_value "Domain or subdomain" "agents.example.com"
     SLAB_DOMAIN=$SLAB_PROMPT_VALUE
     slab_validate_domain "$SLAB_DOMAIN"
@@ -271,9 +327,17 @@ slab_collect_interactive_configuration() {
     # shellcheck disable=SC2034
     SLAB_PUBLIC_URL=https://$SLAB_DOMAIN
   else
+    detected_server_ip=$(slab_detect_server_ipv4 || true)
+    slab_prompt_note \
+      "Confirm the IPv4 address shown by your VPS provider." \
+      "Slab will listen on port 3009 at this address." \
+      "This option uses HTTP. Choose a domain if you need encrypted HTTPS."
+    slab_prompt_value "Server IPv4 address" "$detected_server_ip"
+    SLAB_PRIVATE_BIND_IP=$SLAB_PROMPT_VALUE
+    slab_validate_server_ipv4 "$SLAB_PRIVATE_BIND_IP"
     # Read by the versioned installer after this sourced helper returns.
     # shellcheck disable=SC2034
-    SLAB_PUBLIC_URL=http://127.0.0.1:3009
+    SLAB_PUBLIC_URL=http://$SLAB_PRIVATE_BIND_IP:$SLAB_PRIVATE_PORT
   fi
 
   slab_prompt_heading "Persistent agent memory"

@@ -95,7 +95,7 @@ test("non-interactive dry-run validates inputs without writing installation data
     assert.match(result.stdout, /Installation plan/);
     assert.match(result.stdout, /Reuse the installed Docker Engine and Compose V2/);
     assert.match(result.stdout, /automatic after a server reboot/);
-    assert.match(result.stdout, /private mode/);
+    assert.match(result.stdout, /this server only \(SSH tunnel\)/);
     assert.match(result.stdout, /Dry run complete/);
     assert.doesNotMatch(result.stdout, /\u001b\[/);
     assert.equal(fs.existsSync(fixture.installDirectory), false);
