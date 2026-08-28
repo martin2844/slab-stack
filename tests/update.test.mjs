@@ -558,7 +558,7 @@ test("JSON update check reports a component-by-component signed diff", (t) => {
   );
   const available = JSON.parse(
     fs.readFileSync(
-      path.join(root, "releases/v0.1.2-candidate.41.json"),
+      path.join(root, "releases/v0.1.2-candidate.42.json"),
       "utf8",
     ),
   );
@@ -609,7 +609,7 @@ test("JSON update check fails closed on an interrupted mixed identity", (t) => {
   t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
   const installed = JSON.parse(
     fs.readFileSync(
-      path.join(root, "releases/v0.1.2-candidate.41.json"),
+      path.join(root, "releases/v0.1.2-candidate.42.json"),
       "utf8",
     ),
   );
@@ -1265,7 +1265,7 @@ test("current candidate upgrades stable without declaring unsafe image rollback"
   );
   const candidate = JSON.parse(
     fs.readFileSync(
-      path.join(root, "releases/v0.1.2-candidate.41.json"),
+      path.join(root, "releases/v0.1.2-candidate.42.json"),
       "utf8",
     ),
   );
@@ -1279,6 +1279,35 @@ test("current candidate upgrades stable without declaring unsafe image rollback"
     "candidate-ordering-test",
     path.join(root, "installer/lib/update.sh"),
     stable.stackVersion,
+    candidate.stackVersion,
+    candidate.migrationCompatibility.minimumRollbackStack,
+  ]);
+  assert.equal(result.status, 0, result.stderr);
+});
+
+test("email workflow migration makes candidate 41 image rollback unsafe", () => {
+  const previous = JSON.parse(
+    fs.readFileSync(
+      path.join(root, "releases/v0.1.2-candidate.41.json"),
+      "utf8",
+    ),
+  );
+  const candidate = JSON.parse(
+    fs.readFileSync(
+      path.join(root, "releases/v0.1.2-candidate.42.json"),
+      "utf8",
+    ),
+  );
+  const result = command("sh", [
+    "-c",
+    [
+      '. "$1"',
+      'slabctl_update_is_newer "$2" "$3"',
+      '! slabctl_update_version_at_least "$2" "$4"',
+    ].join("; "),
+    "workflow-migration-rollback-test",
+    path.join(root, "installer/lib/update.sh"),
+    previous.stackVersion,
     candidate.stackVersion,
     candidate.migrationCompatibility.minimumRollbackStack,
   ]);
