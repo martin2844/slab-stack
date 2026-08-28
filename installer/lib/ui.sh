@@ -1,9 +1,28 @@
 #!/bin/sh
 
-slab_ui_banner() {
-  cat <<'EOF'
+SLAB_UI_RESET=
+SLAB_UI_HEADING=
+SLAB_UI_STEP=
+SLAB_UI_SUCCESS=
+SLAB_UI_WARNING=
+SLAB_UI_ERROR=
+SLAB_UI_PROMPT=
+SLAB_UI_MUTED=
 
-Slab self-hosted setup
+if [ -t 1 ] && [ "${TERM:-dumb}" != dumb ] && [ "${NO_COLOR+x}" != x ]; then
+  SLAB_UI_RESET=$(printf '\033[0m')
+  SLAB_UI_HEADING=$(printf '\033[1;36m')
+  SLAB_UI_STEP=$(printf '\033[1;32m')
+  SLAB_UI_SUCCESS=$(printf '\033[1;32m')
+  SLAB_UI_WARNING=$(printf '\033[1;33m')
+  SLAB_UI_ERROR=$(printf '\033[1;31m')
+  SLAB_UI_PROMPT=$(printf '\033[1m')
+  SLAB_UI_MUTED=$(printf '\033[2m')
+fi
+
+slab_ui_banner() {
+  printf '\n%sSlab self-hosted setup%s\n' "$SLAB_UI_HEADING" "$SLAB_UI_RESET"
+  cat <<'EOF'
 ======================
 
 This installer prepares one Slab workspace on this server. It will:
@@ -22,15 +41,24 @@ EOF
 
 slab_ui_section() {
   section_title=$1
-  printf '\n%s\n' "$section_title"
-  printf '%s\n' "----------------------------------------"
+  printf '\n%s%s%s\n' "$SLAB_UI_HEADING" "$section_title" "$SLAB_UI_RESET"
+  printf '%s%s%s\n' "$SLAB_UI_MUTED" "----------------------------------------" "$SLAB_UI_RESET"
 }
 
 slab_ui_step() {
   step_number=$1
   step_total=$2
   step_title=$3
-  printf '\n[%s/%s] %s\n' "$step_number" "$step_total" "$step_title"
+  printf '\n%s[%s/%s] %s%s\n' \
+    "$SLAB_UI_STEP" "$step_number" "$step_total" "$step_title" "$SLAB_UI_RESET"
+}
+
+slab_ui_success() {
+  printf '%s%s%s\n' "$SLAB_UI_SUCCESS" "$1" "$SLAB_UI_RESET"
+}
+
+slab_ui_warning() {
+  printf '%s%s%s\n' "$SLAB_UI_WARNING" "$1" "$SLAB_UI_RESET"
 }
 
 slab_ui_docker_plan() {
@@ -51,24 +79,27 @@ Installation plan
 
   Host:       $platform
   Release:    $requested_version
-  Directory:  $SLAB_INSTALL_DIRECTORY
-  Access:     $SLAB_ACCESS_MODE
-  URL:        $SLAB_PUBLIC_URL
+  Slab files: $SLAB_INSTALL_DIRECTORY
+  Open in:    $SLAB_ACCESS_MODE mode
+  Address:    $SLAB_PUBLIC_URL
   Memory:     $SLAB_MEMORY_MODE
   Docker:     $(slab_ui_docker_plan)
-  Lifecycle:  systemd-managed; persistent data stays in named Docker volumes
+  Restarts:   automatic after a server reboot
 
-The installation may add apt packages, Docker's signed apt repository, Docker
-Engine, systemd units, and files below $SLAB_INSTALL_DIRECTORY. It will not
-open a public application port in private mode. Domain mode uses Caddy on ports
-80 and 443 and requests a TLS certificate after DNS resolves to this server.
+Slab may install required server packages and Docker. It keeps its settings in
+$SLAB_INSTALL_DIRECTORY. Your workspace data is stored separately and is not
+removed by normal restarts or updates.
+
+Private mode does not expose Slab publicly. Domain mode makes Slab available at
+the address above and automatically configures HTTPS after your domain points
+to this server.
 EOF
 }
 
 slab_ui_print_success() {
   cat <<EOF
 
-Core installation complete
+${SLAB_UI_SUCCESS}Core installation complete${SLAB_UI_RESET}
 ==========================
 
 Slab's services are healthy and the administrator account is configured.

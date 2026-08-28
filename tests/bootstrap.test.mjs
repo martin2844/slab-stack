@@ -175,7 +175,8 @@ test("verifies a signed exact-version bundle and cleans its temporary root", (t)
   const fixture = createSignedRelease(t);
   const result = runBootstrap(fixture, ["--version", fixture.version, "--", "--dry-run"]);
   assert.equal(result.status, 0, result.stderr);
-  assert.match(result.stdout, /Release signature and checksum verified/);
+  assert.match(result.stdout, /Download verified\. Starting the guided installer/);
+  assert.doesNotMatch(result.stdout, /\u001b\[/);
   const installerArguments = fs.readFileSync(fixture.marker, "utf8");
   assert.match(installerArguments, /--manifest/);
   assert.match(installerArguments, /--dry-run/);
