@@ -15,7 +15,11 @@ if [ -t 1 ] && [ "${TERM:-dumb}" != dumb ] && [ "${NO_COLOR+x}" != x ]; then
   SLAB_UI_STEP=$(printf '\033[1;32m')
   SLAB_UI_SUCCESS=$(printf '\033[1;32m')
   SLAB_UI_WARNING=$(printf '\033[1;33m')
+  # Read by prompts.sh and install.sh after this helper is sourced.
+  # shellcheck disable=SC2034
   SLAB_UI_ERROR=$(printf '\033[1;31m')
+  # Read by prompts.sh and install.sh after this helper is sourced.
+  # shellcheck disable=SC2034
   SLAB_UI_PROMPT=$(printf '\033[1m')
   SLAB_UI_MUTED=$(printf '\033[2m')
 fi
