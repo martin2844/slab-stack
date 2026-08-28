@@ -42,6 +42,31 @@ The installer refuses to remove conflicting distribution Docker packages
 automatically. This keeps host package removal explicit; resolve the reported
 package list and rerun the same installation command.
 
+## Guided installation flow
+
+The interactive flow is intentionally suitable for a clean VPS. It explains
+each decision before changing the host:
+
+1. choose the root-private installation directory;
+2. choose SSH-only private access or a DNS-backed domain with automatic TLS;
+3. leave persistent memory disabled or configure managed/self-hosted Honcho;
+4. review the exact release, Docker action, URL, storage, and systemd plan;
+5. provision missing host tools and Docker, then start and health-check Slab;
+6. create the password-protected administrator;
+7. optionally connect Proton Mail and authenticate Codex or Gemini.
+
+Docker is a provisioned dependency, not a prerequisite the operator must install
+manually. On a clean supported host the installer configures Docker's official
+apt repository, verifies its pinned signing-key fingerprint, installs Docker CE,
+containerd, Buildx, and Compose V2, and enables the daemon at boot. If Docker and
+Compose V2 are already healthy, the plan says they will be reused.
+
+Run an inspect-only pass before installation when desired:
+
+```sh
+sudo ./installer/install.sh --dry-run
+```
+
 Interactive private install:
 
 ```sh

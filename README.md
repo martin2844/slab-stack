@@ -43,6 +43,14 @@ for the exact tested hosts and topology evidence. On a clean host Slab installs
 Docker Engine and Compose V2 from Docker's official apt repository after
 verifying the repository key fingerprint.
 
+The interactive installer is a guided host onboarding flow. Before changing
+the server it explains storage, private versus domain access, optional memory,
+the exact Docker action, persistent volumes, systemd lifecycle, and the selected
+signed release. A clean supported VPS does not need Docker preinstalled: Slab
+provisions Docker CE, containerd, Buildx, and Compose V2, enables Docker at boot,
+and then starts the digest-pinned stack. A healthy existing Docker installation
+is reused without replacement.
+
 The installed stack is registered as `slab.service`. systemd starts it after
 Docker and the network are available, stops it before Docker shuts down, and
 provides standard host lifecycle operations without exposing the Docker socket
@@ -122,6 +130,11 @@ A reviewed candidate can still be installed explicitly:
 ```bash
 sudo sh install.sh --version 0.1.2-candidate.38
 ```
+
+The guided flow asks only for workspace configuration and optional integrations.
+It shows a complete installation plan and requires confirmation before apt,
+Docker, systemd, or Slab state is changed. Use `-- --dry-run` to inspect that
+plan without mutating the host.
 
 Existing installations on affected `0.1.x` releases may need the
 signed, one-time Email migration metadata correction before their mandatory

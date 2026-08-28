@@ -190,6 +190,15 @@ test("resolves candidate metadata and verifies the bundled manifest", (t) => {
   assert.equal(fs.existsSync(fixture.marker), true);
 });
 
+test("reports an actionable error when an exact release is unavailable", (t) => {
+  const fixture = createSignedRelease(t);
+  const result = runBootstrap(fixture, ["--version", "9.9.9"]);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /could not download release 9\.9\.9/);
+  assert.match(result.stderr, /--channel stable\/candidate/);
+  assert.equal(fs.existsSync(fixture.marker), false);
+});
+
 test("rejects an archive changed after its checksum was signed", (t) => {
   const fixture = createSignedRelease(t);
   fs.appendFileSync(fixture.archive, "tampered");
@@ -268,6 +277,7 @@ test("packages the same manifest reproducibly with only installer runtime files"
   assert.equal(sha256(path.join(first, asset)), sha256(path.join(second, asset)));
   const listing = command("tar", ["-tzf", path.join(first, asset)]).stdout;
   assert.match(listing, /installer\/install\.sh/);
+  assert.match(listing, /installer\/lib\/ui\.sh/);
   assert.match(listing, /installer\/lib\/metadata-repair\.sh/);
   assert.match(listing, /templates\/compose\.yml/);
   assert.match(listing, /bin\/slabctl/);
