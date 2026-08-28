@@ -11,6 +11,19 @@ SLAB_BOOTSTRAP_RELEASE_BASE_URL=${SLAB_BOOTSTRAP_RELEASE_BASE_URL:-https://githu
 SLAB_BOOTSTRAP_PUBLIC_KEY_SHA256=2865983ef11b8070415642e0ebdcde17468f48392ee517a63f991f29e80c5293
 SLAB_BOOTSTRAP_ALLOW_INSECURE_TEST_SOURCE=${SLAB_BOOTSTRAP_ALLOW_INSECURE_TEST_SOURCE:-0}
 SLAB_BOOTSTRAP_TEMPORARY_DIRECTORY=
+SLAB_BOOTSTRAP_RESET=
+SLAB_BOOTSTRAP_HEADING=
+SLAB_BOOTSTRAP_STEP=
+SLAB_BOOTSTRAP_SUCCESS=
+SLAB_BOOTSTRAP_ERROR=
+
+if [ -t 1 ] && [ "${TERM:-dumb}" != dumb ] && [ "${NO_COLOR+x}" != x ]; then
+  SLAB_BOOTSTRAP_RESET=$(printf '\033[0m')
+  SLAB_BOOTSTRAP_HEADING=$(printf '\033[1;36m')
+  SLAB_BOOTSTRAP_STEP=$(printf '\033[1;32m')
+  SLAB_BOOTSTRAP_SUCCESS=$(printf '\033[1;32m')
+  SLAB_BOOTSTRAP_ERROR=$(printf '\033[1;31m')
+fi
 
 slab_bootstrap_usage() {
   cat <<'EOF'
@@ -28,8 +41,14 @@ EOF
 }
 
 slab_bootstrap_fail() {
-  echo "Slab bootstrap failed: $*" >&2
+  printf '%sSlab bootstrap failed:%s %s\n' \
+    "$SLAB_BOOTSTRAP_ERROR" "$SLAB_BOOTSTRAP_RESET" "$*" >&2
   exit 1
+}
+
+slab_bootstrap_step() {
+  printf '%s[%s/3] %s%s\n' \
+    "$SLAB_BOOTSTRAP_STEP" "$1" "$2" "$SLAB_BOOTSTRAP_RESET"
 }
 
 # Invoked indirectly by the EXIT trap.
@@ -171,9 +190,9 @@ for required_command in curl openssl sha256sum tar sed awk grep wc mktemp find c
   slab_bootstrap_require_command "$required_command"
 done
 
+printf '\n%sSlab verified installer%s\n' \
+  "$SLAB_BOOTSTRAP_HEADING" "$SLAB_BOOTSTRAP_RESET"
 cat <<'EOF'
-
-Slab verified installer
 =======================
 
 This small bootstrap selects a Slab release, verifies its Ed25519 signature
@@ -194,7 +213,7 @@ public_key_sha256=$(sha256sum "$public_key_der" | awk '{print $1}')
   slab_bootstrap_fail "embedded release key fingerprint does not match"
 
 if [ -z "$requested_version" ]; then
-  echo "[1/3] Resolve the signed '$requested_channel' release channel"
+  slab_bootstrap_step 1 "Find the latest signed '$requested_channel' release"
   channel_base_url=${SLAB_BOOTSTRAP_CHANNEL_BASE_URL:-https://github.com/martin2844/slab-stack/releases/download/channel-$requested_channel}
   channel_file=$SLAB_BOOTSTRAP_TEMPORARY_DIRECTORY/channel.json
   channel_signature=$SLAB_BOOTSTRAP_TEMPORARY_DIRECTORY/channel.json.sig
@@ -219,7 +238,7 @@ if [ -z "$requested_version" ]; then
     grep -Eq '^[a-f0-9]{64}$' ||
     slab_bootstrap_fail "channel manifest checksum is invalid"
 else
-  echo "[1/3] Use exact release $requested_version"
+  slab_bootstrap_step 1 "Use exact release $requested_version"
 fi
 slab_bootstrap_validate_version "$requested_version"
 
@@ -229,7 +248,7 @@ archive=$SLAB_BOOTSTRAP_TEMPORARY_DIRECTORY/$asset_name
 checksum=$archive.sha256
 signature=$checksum.sig
 
-echo "[2/3] Download signed Slab release $requested_version"
+slab_bootstrap_step 2 "Download signed Slab release $requested_version"
 if ! slab_bootstrap_download "$release_url/$asset_name" "$archive"; then
   slab_bootstrap_fail "could not download release $requested_version; verify network access and that the exact version was published, or use --channel stable/candidate"
 fi
@@ -240,7 +259,7 @@ if ! slab_bootstrap_download "$release_url/$asset_name.sha256.sig" "$signature";
   slab_bootstrap_fail "release $requested_version has no downloadable checksum signature"
 fi
 
-echo "[3/3] Verify release signature, checksum, and archive safety"
+slab_bootstrap_step 3 "Verify the download before running it"
 openssl pkeyutl -verify -rawin -pubin -inkey "$public_key" \
   -in "$checksum" -sigfile "$signature" >/dev/null 2>&1 ||
   slab_bootstrap_fail "release signature verification failed"
@@ -285,7 +304,8 @@ if [ -n "$channel_manifest_sha256" ]; then
     slab_bootstrap_fail "bundle manifest does not match the selected channel"
 fi
 
-echo "Release signature and checksum verified. Starting the guided installer."
+printf '\n%sDownload verified. Starting the guided installer.%s\n' \
+  "$SLAB_BOOTSTRAP_SUCCESS" "$SLAB_BOOTSTRAP_RESET"
 set +e
 sh "$installer" --manifest "$manifest" "$@"
 installer_status=$?

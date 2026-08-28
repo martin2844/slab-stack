@@ -126,6 +126,25 @@ test("interactive guidance distinguishes self-hosted storage from OpenAI process
   assert.match(source, /OpenAI API key for Honcho derivation and embeddings/);
 });
 
+test("interactive guidance explains storage and browser access in plain language", () => {
+  const source = fs.readFileSync(helper, "utf8");
+  assert.match(source, /Where should Slab keep its files\?/);
+  assert.match(source, /agents, documents, tickets, and email settings/);
+  assert.match(source, /Both survive normal restarts and updates/);
+  assert.match(source, /Keep the default unless/);
+  assert.match(source, /How do you want to open Slab\?/);
+  assert.match(source, /Best for testing/);
+  assert.match(source, /Best for regular use/);
+  assert.match(source, /Choose 1 if you are unsure/);
+  assert.match(source, /Enter 1 for private access or 2 for domain access/);
+});
+
+test("interactive questions are visually separated from their descriptions", () => {
+  const source = fs.readFileSync(helper, "utf8");
+  assert.match(source, /printf '\\n%s%s%s \[%s\]: '/);
+  assert.match(source, /printf '\\n%s%s%s: '/);
+});
+
 test("interactive password input preserves the installer's outer traps", {
   skip: spawnSync("sh", ["-c", "command -v script"], { encoding: "utf8" }).status !== 0,
 }, () => {

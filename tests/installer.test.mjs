@@ -88,9 +88,10 @@ test("non-interactive dry-run validates inputs without writing installation data
     assert.match(result.stdout, /Slab self-hosted setup/);
     assert.match(result.stdout, /Installation plan/);
     assert.match(result.stdout, /Reuse the installed Docker Engine and Compose V2/);
-    assert.match(result.stdout, /systemd-managed/);
+    assert.match(result.stdout, /automatic after a server reboot/);
     assert.match(result.stdout, /private mode/);
     assert.match(result.stdout, /Dry run complete/);
+    assert.doesNotMatch(result.stdout, /\u001b\[/);
     assert.equal(fs.existsSync(fixture.installDirectory), false);
   } finally {
     fs.rmSync(fixture.directory, { recursive: true, force: true });

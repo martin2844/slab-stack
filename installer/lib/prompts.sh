@@ -1,13 +1,13 @@
 #!/bin/sh
 
 slab_prompt_error() {
-  echo "$*" >&2
+  printf '%s%s%s\n' "${SLAB_UI_ERROR:-}" "$*" "${SLAB_UI_RESET:-}" >&2
   return 1
 }
 
 slab_prompt_heading() {
-  printf '\n%s\n' "$1" > /dev/tty
-  printf '%s\n' "----------------------------------------" > /dev/tty
+  printf '\n%s%s%s\n' "${SLAB_UI_HEADING:-}" "$1" "${SLAB_UI_RESET:-}" > /dev/tty
+  printf '%s%s%s\n' "${SLAB_UI_MUTED:-}" "----------------------------------------" "${SLAB_UI_RESET:-}" > /dev/tty
 }
 
 slab_prompt_note() {
@@ -163,7 +163,8 @@ slab_validate_passwords() {
 slab_prompt_value() {
   prompt=$1
   default_value=$2
-  printf '%s [%s]: ' "$prompt" "$default_value" > /dev/tty
+  printf '\n%s%s%s [%s]: ' \
+    "${SLAB_UI_PROMPT:-}" "$prompt" "${SLAB_UI_RESET:-}" "$default_value" > /dev/tty
   IFS= read -r entered_value < /dev/tty
   if [ -n "$entered_value" ]; then
     SLAB_PROMPT_VALUE=$entered_value
@@ -187,7 +188,8 @@ slab_prompt_password() {
 Slab currently uses one workspace administrator. Choose at least 12 characters.
 The raw password is never stored or logged; Slab stores only its password hash.
 EOF
-    printf 'Administrator password: ' > /dev/tty
+    printf '\n%sAdministrator password%s: ' \
+      "${SLAB_UI_PROMPT:-}" "${SLAB_UI_RESET:-}" > /dev/tty
     stty -echo < /dev/tty
     IFS= read -r password < /dev/tty
     printf '\nConfirm administrator password: ' > /dev/tty
@@ -208,7 +210,8 @@ slab_prompt_hidden_value() {
     }
     trap restore_tty EXIT
     trap 'restore_tty; exit 130' HUP INT TERM
-    printf '%s: ' "$prompt" > /dev/tty
+    printf '\n%s%s%s: ' \
+      "${SLAB_UI_PROMPT:-}" "$prompt" "${SLAB_UI_RESET:-}" > /dev/tty
     stty -echo < /dev/tty
     IFS= read -r secret < /dev/tty
     restore_tty
@@ -223,36 +226,45 @@ slab_prompt_hidden_value() {
 }
 
 slab_collect_interactive_configuration() {
-  slab_prompt_heading "Storage"
+  slab_prompt_heading "Where should Slab keep its files?"
   slab_prompt_note \
-    "Slab keeps generated configuration below this root-private directory." \
-    "Application data lives in named Docker volumes and survives upgrades." \
-    "The default is recommended for a dedicated VPS."
-  slab_prompt_value "Installation directory" "/opt/slab"
+    "Slab uses two places on this same server:" \
+    "  - a private folder for program settings and secrets;" \
+    "  - Docker storage for your agents, documents, tickets, and email settings." \
+    "Both survive normal restarts and updates." \
+    "Keep the default unless you have a specific reason to change it."
+  slab_prompt_value "Slab folder" "/opt/slab"
   SLAB_INSTALL_DIRECTORY=$SLAB_PROMPT_VALUE
   slab_validate_install_directory "$SLAB_INSTALL_DIRECTORY"
 
-  slab_prompt_heading "Browser access"
+  slab_prompt_heading "How do you want to open Slab?"
   slab_prompt_note \
-    "Choose private for an SSH-only installation bound to 127.0.0.1:3009." \
-    "Choose domain to expose Caddy on ports 80/443 with automatic HTTPS." \
-    "Domain mode requires an A/AAAA DNS record pointing at this server."
-  slab_prompt_value "Access mode (private/domain)" "private"
-  SLAB_ACCESS_MODE=$SLAB_PROMPT_VALUE
+    "1) Private — Best for testing. Only you can open it through SSH." \
+    "2) Domain  — Best for regular use. Open it at an HTTPS address such as" \
+    "             agents.example.com. You need a domain or subdomain." \
+    "Choose 1 if you are unsure."
+  slab_prompt_value "Choose 1 or 2" "1"
+  case "$SLAB_PROMPT_VALUE" in
+    1 | private) SLAB_ACCESS_MODE=private ;;
+    2 | domain) SLAB_ACCESS_MODE=domain ;;
+    *) slab_prompt_error "Enter 1 for private access or 2 for domain access." ;;
+  esac
   slab_validate_access_mode "$SLAB_ACCESS_MODE"
 
   SLAB_DOMAIN=
   SLAB_ACME_EMAIL=
   if [ "$SLAB_ACCESS_MODE" = domain ]; then
     slab_prompt_note \
-      "Enter only the hostname, without https://, a path, or a port." \
-      "Caddy requests the certificate after DNS resolves to this server."
-    slab_prompt_value "Domain hostname" "agents.example.com"
+      "Enter the address you want to use, without https:// or a port." \
+      "Before Slab can open there, create a DNS A record that points this" \
+      "address to the public IP of this server. Slab will set up HTTPS for you."
+    slab_prompt_value "Domain or subdomain" "agents.example.com"
     SLAB_DOMAIN=$SLAB_PROMPT_VALUE
     slab_validate_domain "$SLAB_DOMAIN"
     slab_prompt_note \
-      "An optional ACME email receives certificate-expiry and account notices."
-    slab_prompt_value "ACME contact email (optional)" ""
+      "You may provide an email address for important HTTPS certificate notices." \
+      "Leave it empty if you do not want those notices."
+    slab_prompt_value "Certificate contact email (optional)" ""
     SLAB_ACME_EMAIL=$SLAB_PROMPT_VALUE
     slab_validate_email "$SLAB_ACME_EMAIL"
     # Read by the versioned installer after this sourced helper returns.

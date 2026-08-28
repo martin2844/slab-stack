@@ -216,7 +216,8 @@ slab_validate_install_target_state
 slab_ui_print_install_plan "$detected_platform" "$requested_version"
 
 if [ "$SLAB_NON_INTERACTIVE" -eq 0 ]; then
-  printf '\nInstall Slab with this configuration? [y/N]: ' > /dev/tty
+  printf '\n%sInstall Slab with this configuration?%s [y/N]: ' \
+    "$SLAB_UI_PROMPT" "$SLAB_UI_RESET" > /dev/tty
   IFS= read -r confirmation < /dev/tty
   case "$confirmation" in y | Y | yes | YES) ;; *) echo "Installation cancelled."; exit 0 ;; esac
 fi
@@ -375,15 +376,31 @@ SLAB_INSTALL_STARTED=0
 
 slab_ui_print_success
 if [ "$SLAB_ACCESS_MODE" = private ]; then
-  echo "Open an SSH tunnel from your computer:"
-  echo "  ssh -L $SLAB_PRIVATE_PORT:127.0.0.1:$SLAB_PRIVATE_PORT user@server"
-  echo "Then open: $SLAB_PUBLIC_URL"
+  slab_ui_section "Open Slab in your browser"
+  cat <<EOF
+Slab is private, so it cannot be opened directly with the server's IP address.
+
+1. On your own computer, open a new terminal.
+2. Run this command and replace the last two values with your SSH login:
+
+   ssh -L $SLAB_PRIVATE_PORT:127.0.0.1:$SLAB_PRIVATE_PORT <your-user>@<server-ip>
+
+3. Keep that terminal open.
+4. Open this address in your browser:
+
+   http://127.0.0.1:$SLAB_PRIVATE_PORT
+EOF
 else
-  echo "Caddy is running for: $SLAB_PUBLIC_URL"
+  slab_ui_section "Open Slab in your browser"
+  echo "Your Slab address is: $SLAB_PUBLIC_URL"
   if [ "$completion_state" = TLS_PENDING ]; then
-    echo "DNS or TLS is still pending. After fixing it, run: sudo slabctl domain verify"
+    echo
+    slab_ui_warning "The address is not ready yet."
+    echo "Make sure its DNS A record points to this server's public IP."
+    echo "Then check again with: sudo slabctl domain verify"
   else
-    echo "HTTPS is verified with a trusted certificate."
+    echo
+    slab_ui_success "HTTPS is ready. You can open the address now."
   fi
 fi
 if [ "$codex_authenticated" -eq 1 ]; then
@@ -405,7 +422,8 @@ If you connect it now, the credentials go directly to Bridge and are not stored
 by the installer. You can safely skip this and run `sudo slabctl proton setup`
 later.
 EOF
-  printf 'Connect a Proton mailbox now? [y/N]: ' > /dev/tty
+  printf '\n%sConnect a Proton mailbox now?%s [y/N]: ' \
+    "$SLAB_UI_PROMPT" "$SLAB_UI_RESET" > /dev/tty
   IFS= read -r configure_proton < /dev/tty
   case "$configure_proton" in
     y | Y | yes | YES)
@@ -424,7 +442,8 @@ Codex is Slab's default local agent runtime. Device login prints a one-time URL
 and code; authentication remains on this server. You can skip and authenticate
 later without reinstalling Slab.
 EOF
-  printf 'Authenticate Codex now? [Y/n]: ' > /dev/tty
+  printf '\n%sAuthenticate Codex now?%s [Y/n]: ' \
+    "$SLAB_UI_PROMPT" "$SLAB_UI_RESET" > /dev/tty
   IFS= read -r authenticate_codex < /dev/tty
   case "$authenticate_codex" in
     n | N | no | NO) ;;
@@ -446,7 +465,8 @@ if [ "$SLAB_NON_INTERACTIVE" -eq 0 ] && ! slabctl_gemini_status >/dev/null 2>&1;
 Gemini is an optional experimental runtime. It is not required when Codex is
 configured and can be added later with `sudo slabctl gemini login`.
 EOF
-  printf 'Authenticate the optional Gemini runtime now? [y/N]: ' > /dev/tty
+  printf '\n%sAuthenticate the optional Gemini runtime now?%s [y/N]: ' \
+    "$SLAB_UI_PROMPT" "$SLAB_UI_RESET" > /dev/tty
   IFS= read -r authenticate_gemini < /dev/tty
   case "$authenticate_gemini" in
     y | Y | yes | YES)
