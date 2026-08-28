@@ -118,6 +118,14 @@ test("password validation requires matching bounded values", () => {
   );
 });
 
+test("interactive guidance distinguishes self-hosted storage from OpenAI processing", () => {
+  const source = fs.readFileSync(helper, "utf8");
+  assert.match(source, /self_hosted: keep Honcho storage on this VPS/);
+  assert.match(source, /still uses OpenAI for derivation and embeddings/);
+  assert.match(source, /may incur OpenAI usage charges/);
+  assert.match(source, /OpenAI API key for Honcho derivation and embeddings/);
+});
+
 test("interactive password input preserves the installer's outer traps", {
   skip: spawnSync("sh", ["-c", "command -v script"], { encoding: "utf8" }).status !== 0,
 }, () => {

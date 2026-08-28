@@ -22,7 +22,7 @@ The implementation source of truth is:
 
 The first promoted stable stack release is recorded in
 [`releases/v0.1.1.json`](releases/v0.1.1.json). The next-release channel remains
-[`releases/v0.1.2-candidate.38.json`](releases/v0.1.2-candidate.38.json). Both pin
+[`releases/v0.1.2-candidate.39.json`](releases/v0.1.2-candidate.39.json). Both pin
 public amd64/arm64 images for all five services. Candidate.36 packages the
 tested Slab Runner pairings for Codex CLI `0.148.0` and experimental Gemini CLI
 `0.56.0`; Gemini account authorization remains host-local Runner state.
@@ -42,6 +42,14 @@ hosts. See the
 for the exact tested hosts and topology evidence. On a clean host Slab installs
 Docker Engine and Compose V2 from Docker's official apt repository after
 verifying the repository key fingerprint.
+
+The interactive installer is a guided host onboarding flow. Before changing
+the server it explains storage, private versus domain access, optional memory,
+the exact Docker action, persistent volumes, systemd lifecycle, and the selected
+signed release. A clean supported VPS does not need Docker preinstalled: Slab
+provisions Docker CE, containerd, Buildx, and Compose V2, enables Docker at boot,
+and then starts the digest-pinned stack. A healthy existing Docker installation
+is reused without replacement.
 
 The installed stack is registered as `slab.service`. systemd starts it after
 Docker and the network are available, stops it before Docker shuts down, and
@@ -67,7 +75,7 @@ templates, image pinning, network exposure, and Compose rendering with
 development fixtures. To render the immutable image environment for a release:
 
 ```bash
-node scripts/render-image-env.mjs releases/v0.1.2-candidate.38.json
+node scripts/render-image-env.mjs releases/v0.1.2-candidate.39.json
 ```
 
 Once a candidate manifest is ready, run the destructive-to-its-own-fixture only
@@ -97,7 +105,7 @@ bytes, and removes the fixture volumes on exit.
 Build the exact candidate bundle locally:
 
 ```bash
-./scripts/package-release.sh releases/v0.1.2-candidate.38.json dist
+./scripts/package-release.sh releases/v0.1.2-candidate.39.json dist
 ```
 
 The packaging step is deterministic for a given manifest and source tree. It
@@ -120,8 +128,13 @@ sudo sh install.sh
 A reviewed candidate can still be installed explicitly:
 
 ```bash
-sudo sh install.sh --version 0.1.2-candidate.38
+sudo sh install.sh --version 0.1.2-candidate.39
 ```
+
+The guided flow asks only for workspace configuration and optional integrations.
+It shows a complete installation plan and requires confirmation before apt,
+Docker, systemd, or Slab state is changed. Use `-- --dry-run` to inspect that
+plan without mutating the host.
 
 Existing installations on affected `0.1.x` releases may need the
 signed, one-time Email migration metadata correction before their mandatory
@@ -132,7 +145,7 @@ Bootstrap options precede installer options. For example, an inspect-only host
 check is:
 
 ```bash
-sudo sh install.sh --version 0.1.2-candidate.38 -- --dry-run
+sudo sh install.sh --version 0.1.2-candidate.39 -- --dry-run
 ```
 
 ## Repository layout

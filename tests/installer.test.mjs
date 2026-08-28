@@ -85,7 +85,36 @@ test("non-interactive dry-run validates inputs without writing installation data
   try {
     const result = run(fixture);
     assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /Slab self-hosted setup/);
+    assert.match(result.stdout, /Installation plan/);
+    assert.match(result.stdout, /Reuse the installed Docker Engine and Compose V2/);
+    assert.match(result.stdout, /systemd-managed/);
+    assert.match(result.stdout, /private mode/);
     assert.match(result.stdout, /Dry run complete/);
+    assert.equal(fs.existsSync(fixture.installDirectory), false);
+  } finally {
+    fs.rmSync(fixture.directory, { recursive: true, force: true });
+  }
+});
+
+test("dry-run explains that Docker will be provisioned when it is unavailable", () => {
+  const fixture = createFixture();
+  fs.writeFileSync(
+    path.join(fixture.binaries, "docker"),
+    "#!/bin/sh\nexit 1\n",
+    { mode: 0o755 },
+  );
+  try {
+    const result = run(fixture);
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(
+      result.stdout,
+      /Install Docker CE, containerd, Buildx, and Compose V2 from Docker's official apt repository/,
+    );
+    assert.match(
+      result.stdout,
+      /Docker Engine and Compose V2 would be installed from Docker's official apt repository/,
+    );
     assert.equal(fs.existsSync(fixture.installDirectory), false);
   } finally {
     fs.rmSync(fixture.directory, { recursive: true, force: true });
@@ -149,11 +178,11 @@ test("rejects a rerun that changes the persisted Compose project identity", () =
   const fixture = createFixture();
   try {
     fs.mkdirSync(path.join(fixture.installDirectory, "config"), { recursive: true });
-    fs.writeFileSync(path.join(fixture.installDirectory, "VERSION"), "0.1.2-candidate.38\n");
+    fs.writeFileSync(path.join(fixture.installDirectory, "VERSION"), "0.1.2-candidate.39\n");
     fs.writeFileSync(
       path.join(fixture.installDirectory, "config", "install-state.json"),
       JSON.stringify({
-        version: "0.1.2-candidate.38",
+        version: "0.1.2-candidate.39",
         accessMode: "private",
         publicUrl: "http://127.0.0.1:39209",
         projectName: "slab-original",
@@ -186,11 +215,11 @@ esac
   );
   try {
     fs.mkdirSync(path.join(fixture.installDirectory, "config"), { recursive: true });
-    fs.writeFileSync(path.join(fixture.installDirectory, "VERSION"), "0.1.2-candidate.38\n");
+    fs.writeFileSync(path.join(fixture.installDirectory, "VERSION"), "0.1.2-candidate.39\n");
     fs.writeFileSync(
       path.join(fixture.installDirectory, "config", "install-state.json"),
       JSON.stringify({
-        version: "0.1.2-candidate.38",
+        version: "0.1.2-candidate.39",
         accessMode: "private",
         publicUrl: "http://127.0.0.1:39209",
         projectName: "slab-dry-run",

@@ -2,12 +2,14 @@
 set -eu
 
 BUNDLE_ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
-DEFAULT_MANIFEST=$BUNDLE_ROOT/releases/v0.1.2-candidate.38.json
+DEFAULT_MANIFEST=$BUNDLE_ROOT/releases/v0.1.2-candidate.39.json
 
 # shellcheck source=installer/lib/preflight.sh
 . "$BUNDLE_ROOT/installer/lib/preflight.sh"
 # shellcheck source=installer/lib/host-bootstrap.sh
 . "$BUNDLE_ROOT/installer/lib/host-bootstrap.sh"
+# shellcheck source=installer/lib/ui.sh
+. "$BUNDLE_ROOT/installer/lib/ui.sh"
 # shellcheck source=installer/lib/prompts.sh
 . "$BUNDLE_ROOT/installer/lib/prompts.sh"
 # shellcheck source=installer/lib/config.sh
@@ -158,6 +160,8 @@ if [ "$SLAB_REPAIR_KNOWN_METADATA" -eq 1 ]; then
   exit 0
 fi
 
+slab_ui_banner
+
 if [ "$SLAB_NON_INTERACTIVE" -eq 1 ]; then
   [ -n "$SLAB_CONFIG_FILE" ] || {
     echo "--non-interactive requires --config FILE." >&2
@@ -170,6 +174,8 @@ else
     echo "Interactive installation requires /dev/tty; use --non-interactive explicitly." >&2
     exit 2
   }
+  slab_ui_section "Configure this workspace"
+  echo "Answer a few questions before any packages, files, or services are changed."
   slab_collect_interactive_configuration
   SLAB_PRIVATE_BIND_IP=127.0.0.1
   SLAB_PRIVATE_PORT=3009
@@ -180,6 +186,7 @@ slab_run_bootstrap_preflight "$SLAB_INSTALL_DIRECTORY"
 slab_validate_compose_project_name "$SLAB_COMPOSE_PROJECT_NAME"
 requested_version=$(slab_extract_stack_version "$SLAB_MANIFEST")
 SLAB_REQUESTED_VERSION=$requested_version
+detected_platform=$(slab_detect_platform)
 
 slab_validate_install_target_state() {
   existing_state=$SLAB_INSTALL_DIRECTORY/config/install-state.json
@@ -206,17 +213,10 @@ slab_validate_install_target_state() {
 
 slab_validate_install_target_state
 
-echo
-echo "Slab installation"
-echo "  Directory: $SLAB_INSTALL_DIRECTORY"
-echo "  Access:    $SLAB_ACCESS_MODE"
-echo "  URL:       $SLAB_PUBLIC_URL"
-echo "  Version:   $requested_version"
-echo "  Memory:    $SLAB_MEMORY_MODE"
-echo
+slab_ui_print_install_plan "$detected_platform" "$requested_version"
 
 if [ "$SLAB_NON_INTERACTIVE" -eq 0 ]; then
-  printf 'Continue? [y/N]: ' > /dev/tty
+  printf '\nInstall Slab with this configuration? [y/N]: ' > /dev/tty
   IFS= read -r confirmation < /dev/tty
   case "$confirmation" in y | Y | yes | YES) ;; *) echo "Installation cancelled."; exit 0 ;; esac
 fi
@@ -239,8 +239,10 @@ fi
 slab_acquire_install_lock "$SLAB_INSTALL_DIRECTORY"
 # Close the read/check-to-write race after acquiring the per-install lock.
 slab_validate_install_target_state
+slab_ui_step 1 6 "Prepare the host and Docker"
 slab_prepare_host
 slab_run_preflight "$SLAB_INSTALL_DIRECTORY"
+slab_ui_step 2 6 "Validate the release manifest"
 slab_validate_release_manifest "$SLAB_MANIFEST"
 validated_version=$(jq -r '.stackVersion' "$SLAB_MANIFEST")
 [ "$validated_version" = "$requested_version" ] || {
@@ -250,6 +252,7 @@ validated_version=$(jq -r '.stackVersion' "$SLAB_MANIFEST")
 
 SLAB_INSTALL_STARTED=1
 SLAB_INSTALL_ATTEMPT_STARTED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+slab_ui_step 3 6 "Create private configuration and persistent storage"
 slab_prepare_state_directory "$SLAB_INSTALL_DIRECTORY"
 slab_acquire_management_lock "$SLAB_INSTALL_DIRECTORY"
 SLAB_STATE_WRITABLE=1
@@ -302,12 +305,15 @@ slab_write_install_state \
   "$SLAB_INSTALL_DIRECTORY" "$requested_version" "$SLAB_ACCESS_MODE" \
   "$SLAB_PUBLIC_URL" "$SLAB_COMPOSE_PROJECT_NAME" \
   "$SLAB_INSTALL_ATTEMPT_STARTED_AT" "$SLAB_INSTALL_PHASE" INSTALLING
+slab_ui_step 4 6 "Download and start the Slab services"
+echo "Docker will pull immutable, digest-pinned images. The first download can take several minutes."
 slab_pull_and_start
 SLAB_INSTALL_PHASE=compose_reconciled
 slab_write_install_state \
   "$SLAB_INSTALL_DIRECTORY" "$requested_version" "$SLAB_ACCESS_MODE" \
   "$SLAB_PUBLIC_URL" "$SLAB_COMPOSE_PROJECT_NAME" \
   "$SLAB_INSTALL_ATTEMPT_STARTED_AT" "$SLAB_INSTALL_PHASE" INSTALLING
+slab_ui_step 5 6 "Register systemd lifecycle and verify service health"
 slab_activate_systemd_unit "$SLAB_INSTALL_DIRECTORY"
 SLAB_INSTALL_PHASE=lifecycle_configured
 slab_write_install_state \
@@ -322,6 +328,7 @@ slab_write_install_state \
   "$SLAB_INSTALL_ATTEMPT_STARTED_AT" "$SLAB_INSTALL_PHASE" INSTALLING
 
 admin_readiness=$(slab_agents_http_status /ready 2>/dev/null || true)
+slab_ui_step 6 6 "Create the administrator and verify browser access"
 if [ "$admin_readiness" = 503 ]; then
   if [ "$SLAB_NON_INTERACTIVE" -eq 1 ]; then
     [ -n "$SLAB_ADMIN_PASSWORD_FILE" ] || {
@@ -366,8 +373,7 @@ slab_write_install_state \
 # runtime onboarding must never rewrite a healthy stack as FAILED.
 SLAB_INSTALL_STARTED=0
 
-echo
-echo "Slab services are healthy and the administrator is configured."
+slab_ui_print_success
 if [ "$SLAB_ACCESS_MODE" = private ]; then
   echo "Open an SSH tunnel from your computer:"
   echo "  ssh -L $SLAB_PRIVATE_PORT:127.0.0.1:$SLAB_PRIVATE_PORT user@server"
@@ -383,7 +389,8 @@ fi
 if [ "$codex_authenticated" -eq 1 ]; then
   echo "Codex authentication is active."
 else
-  echo "Codex authentication is the next setup step."
+  echo "No agent runtime is authenticated yet. The workspace UI is available,"
+  echo "but agents cannot run until at least one runtime is connected."
   echo "Run: sudo slabctl codex login"
 fi
 
@@ -391,6 +398,13 @@ if [ "$SLAB_NON_INTERACTIVE" -eq 0 ] &&
   slabctl_proton_available &&
   ! slabctl_proton_configured
 then
+  slab_ui_section "Optional email setup"
+  cat > /dev/tty <<'EOF'
+Slab includes a managed Proton Bridge connector for paid Proton Mail accounts.
+If you connect it now, the credentials go directly to Bridge and are not stored
+by the installer. You can safely skip this and run `sudo slabctl proton setup`
+later.
+EOF
   printf 'Connect a Proton mailbox now? [y/N]: ' > /dev/tty
   IFS= read -r configure_proton < /dev/tty
   case "$configure_proton" in
@@ -404,6 +418,12 @@ then
 fi
 
 if [ "$SLAB_NON_INTERACTIVE" -eq 0 ] && [ "$codex_authenticated" -eq 0 ]; then
+  slab_ui_section "Authenticate an agent runtime"
+  cat > /dev/tty <<'EOF'
+Codex is Slab's default local agent runtime. Device login prints a one-time URL
+and code; authentication remains on this server. You can skip and authenticate
+later without reinstalling Slab.
+EOF
   printf 'Authenticate Codex now? [Y/n]: ' > /dev/tty
   IFS= read -r authenticate_codex < /dev/tty
   case "$authenticate_codex" in
@@ -421,6 +441,11 @@ if [ "$SLAB_NON_INTERACTIVE" -eq 0 ] && [ "$codex_authenticated" -eq 0 ]; then
   esac
 fi
 if [ "$SLAB_NON_INTERACTIVE" -eq 0 ] && ! slabctl_gemini_status >/dev/null 2>&1; then
+  cat > /dev/tty <<'EOF'
+
+Gemini is an optional experimental runtime. It is not required when Codex is
+configured and can be added later with `sudo slabctl gemini login`.
+EOF
   printf 'Authenticate the optional Gemini runtime now? [y/N]: ' > /dev/tty
   IFS= read -r authenticate_gemini < /dev/tty
   case "$authenticate_gemini" in
@@ -437,3 +462,4 @@ if [ "$SLAB_NON_INTERACTIVE" -eq 0 ] && ! slabctl_gemini_status >/dev/null 2>&1;
   esac
 fi
 echo "Installation status: $completion_state"
+echo "Run 'sudo slabctl doctor' at any time to inspect Docker, services, storage, and runtime health."

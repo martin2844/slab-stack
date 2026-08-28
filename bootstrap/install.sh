@@ -171,6 +171,16 @@ for required_command in curl openssl sha256sum tar sed awk grep wc mktemp find c
   slab_bootstrap_require_command "$required_command"
 done
 
+cat <<'EOF'
+
+Slab verified installer
+=======================
+
+This small bootstrap selects a Slab release, verifies its Ed25519 signature
+and SHA-256 checksum, then starts the versioned guided installer. No Docker or
+application changes happen until the verified installer shows its plan.
+EOF
+
 SLAB_BOOTSTRAP_TEMPORARY_DIRECTORY=$(mktemp -d /tmp/slab-bootstrap.XXXXXX)
 chmod 0700 "$SLAB_BOOTSTRAP_TEMPORARY_DIRECTORY"
 channel_manifest_sha256=
@@ -184,13 +194,20 @@ public_key_sha256=$(sha256sum "$public_key_der" | awk '{print $1}')
   slab_bootstrap_fail "embedded release key fingerprint does not match"
 
 if [ -z "$requested_version" ]; then
+  echo "[1/3] Resolve the signed '$requested_channel' release channel"
   channel_base_url=${SLAB_BOOTSTRAP_CHANNEL_BASE_URL:-https://github.com/martin2844/slab-stack/releases/download/channel-$requested_channel}
   channel_file=$SLAB_BOOTSTRAP_TEMPORARY_DIRECTORY/channel.json
   channel_signature=$SLAB_BOOTSTRAP_TEMPORARY_DIRECTORY/channel.json.sig
-  slab_bootstrap_download \
+  if ! slab_bootstrap_download \
     "$channel_base_url/$requested_channel.json" "$channel_file" 30
-  slab_bootstrap_download \
+  then
+    slab_bootstrap_fail "could not download the '$requested_channel' channel metadata; verify network access or choose an exact published version with --version"
+  fi
+  if ! slab_bootstrap_download \
     "$channel_base_url/$requested_channel.json.sig" "$channel_signature" 30
+  then
+    slab_bootstrap_fail "could not download the '$requested_channel' channel signature"
+  fi
   openssl pkeyutl -verify -rawin -pubin -inkey "$public_key" \
     -in "$channel_file" -sigfile "$channel_signature" >/dev/null 2>&1 ||
     slab_bootstrap_fail "channel signature verification failed"
@@ -201,6 +218,8 @@ if [ -z "$requested_version" ]; then
   printf '%s\n' "$channel_manifest_sha256" |
     grep -Eq '^[a-f0-9]{64}$' ||
     slab_bootstrap_fail "channel manifest checksum is invalid"
+else
+  echo "[1/3] Use exact release $requested_version"
 fi
 slab_bootstrap_validate_version "$requested_version"
 
@@ -210,11 +229,18 @@ archive=$SLAB_BOOTSTRAP_TEMPORARY_DIRECTORY/$asset_name
 checksum=$archive.sha256
 signature=$checksum.sig
 
-echo "Downloading signed Slab release $requested_version..."
-slab_bootstrap_download "$release_url/$asset_name" "$archive"
-slab_bootstrap_download "$release_url/$asset_name.sha256" "$checksum"
-slab_bootstrap_download "$release_url/$asset_name.sha256.sig" "$signature"
+echo "[2/3] Download signed Slab release $requested_version"
+if ! slab_bootstrap_download "$release_url/$asset_name" "$archive"; then
+  slab_bootstrap_fail "could not download release $requested_version; verify network access and that the exact version was published, or use --channel stable/candidate"
+fi
+if ! slab_bootstrap_download "$release_url/$asset_name.sha256" "$checksum"; then
+  slab_bootstrap_fail "release $requested_version has no downloadable checksum"
+fi
+if ! slab_bootstrap_download "$release_url/$asset_name.sha256.sig" "$signature"; then
+  slab_bootstrap_fail "release $requested_version has no downloadable checksum signature"
+fi
 
+echo "[3/3] Verify release signature, checksum, and archive safety"
 openssl pkeyutl -verify -rawin -pubin -inkey "$public_key" \
   -in "$checksum" -sigfile "$signature" >/dev/null 2>&1 ||
   slab_bootstrap_fail "release signature verification failed"
@@ -259,7 +285,7 @@ if [ -n "$channel_manifest_sha256" ]; then
     slab_bootstrap_fail "bundle manifest does not match the selected channel"
 fi
 
-echo "Release signature and checksum verified. Starting the versioned installer."
+echo "Release signature and checksum verified. Starting the guided installer."
 set +e
 sh "$installer" --manifest "$manifest" "$@"
 installer_status=$?

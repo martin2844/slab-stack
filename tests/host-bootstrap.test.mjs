@@ -159,6 +159,9 @@ test("prepares Docker CE and Compose V2 from the official repository", () => {
     );
     assert.match(calls, /systemctl enable --now docker/);
     assert.equal(fs.existsSync(fixture.dockerReady), true);
+    assert.match(result.stdout, /Docker CE, containerd, Buildx, and Docker Compose V2/);
+    assert.match(result.stdout, /official apt repository/);
+    assert.match(result.stdout, /enabled for boot/);
   } finally {
     fs.rmSync(fixture.directory, { recursive: true, force: true });
   }
@@ -170,6 +173,8 @@ test("does not mutate apt configuration when Docker is already ready", () => {
   try {
     const result = run(fixture, "slab_prepare_host");
     assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /already running/);
+    assert.match(result.stdout, /reusing it/);
     assert.equal(fs.existsSync(fixture.calls), false);
     assert.equal(
       fs.existsSync(path.join(fixture.hostRoot, "etc", "apt", "sources.list.d")),

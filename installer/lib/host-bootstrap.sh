@@ -14,6 +14,8 @@ slab_apt_get() {
 
 slab_install_host_packages() {
   [ "$SLAB_HOST_PACKAGES_PREPARED" -eq 0 ] || return 0
+  echo "Refreshing apt metadata and installing Slab's small host toolset:"
+  echo "  ca-certificates, curl, GnuPG, jq, OpenSSL, and tar"
   slab_apt_get update
   slab_apt_get install -y ca-certificates curl gnupg jq openssl tar
   SLAB_HOST_PACKAGES_PREPARED=1
@@ -106,7 +108,10 @@ slab_write_docker_repository() (
 )
 
 slab_install_docker_engine() {
-  slab_docker_is_ready && return 0
+  if slab_docker_is_ready; then
+    echo "Docker Engine is already running and Compose V2 is available; reusing it."
+    return 0
+  fi
   slab_require_commands apt-get dpkg dpkg-query curl gpg grep install mktemp
   slab_detect_conflicting_docker_packages
 
@@ -122,7 +127,10 @@ slab_install_docker_engine() {
     return 1
   }
 
-  echo "Docker Engine is not installed; configuring Docker's official apt repository."
+  echo "Docker Engine or Compose V2 is not ready. Slab will provision:"
+  echo "  Docker CE, containerd, Buildx, and Docker Compose V2"
+  echo "The packages come from Docker's official apt repository. Slab pins and"
+  echo "verifies Docker's repository signing-key fingerprint before installation."
   slab_install_host_packages
   slab_write_docker_repository "$distribution" "$codename" "$architecture"
   slab_apt_get update
@@ -133,6 +141,7 @@ slab_install_docker_engine() {
     echo "Docker Engine installation completed, but the daemon or Compose V2 is unavailable." >&2
     return 1
   }
+  echo "Docker Engine is installed, enabled for boot, and ready with Compose V2."
 }
 
 slab_prepare_host() {
@@ -144,7 +153,7 @@ slab_prepare_host() {
     ! command -v gpg >/dev/null 2>&1 ||
     ! command -v curl >/dev/null 2>&1
   then
-    echo "Installing required host packages from the distribution repository."
+    echo "Some required host tools are missing; provisioning them from the distribution repository."
     slab_install_host_packages
   fi
   slab_install_docker_engine

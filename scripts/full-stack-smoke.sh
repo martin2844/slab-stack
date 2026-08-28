@@ -2,7 +2,7 @@
 set -eu
 
 ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
-MANIFEST=${SLAB_STACK_MANIFEST:-$ROOT/releases/v0.1.2-candidate.38.json}
+MANIFEST=${SLAB_STACK_MANIFEST:-$ROOT/releases/v0.1.2-candidate.39.json}
 PRIVATE_PORT=${SLAB_STACK_SMOKE_PORT:-39009}
 PROJECT_NAME=${SLAB_STACK_SMOKE_PROJECT:-slab-stack-smoke-$$}
 FIXTURE_DIR=$(mktemp -d "${TMPDIR:-/tmp}/slab-stack-smoke.XXXXXX")

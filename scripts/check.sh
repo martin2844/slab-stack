@@ -49,15 +49,15 @@ for manifest in "$ROOT"/releases/*.json; do
 done
 
 node "$ROOT/scripts/render-image-env.mjs" \
-  "$ROOT/releases/v0.1.2-candidate.38.json" >/dev/null
+  "$ROOT/releases/v0.1.2-candidate.39.json" >/dev/null
 
-candidate_manifest=$ROOT/releases/v0.1.2-candidate.38.json
+candidate_manifest=$ROOT/releases/v0.1.2-candidate.39.json
 candidate_manifest_sha256=$(sha256sum "$candidate_manifest" | awk '{print $1}')
 jq -e \
   --arg expected_sha256 "$candidate_manifest_sha256" \
   '.schemaVersion == 1 and
    .channel == "candidate" and
-   .stackVersion == "0.1.2-candidate.38" and
+   .stackVersion == "0.1.2-candidate.39" and
    .manifestSha256 == $expected_sha256' \
   "$ROOT/channels/candidate.json" >/dev/null
 
@@ -156,6 +156,7 @@ sh -n "$ROOT/installer/lib/config.sh"
 sh -n "$ROOT/installer/lib/docker.sh"
 sh -n "$ROOT/installer/lib/health.sh"
 sh -n "$ROOT/installer/lib/host-bootstrap.sh"
+sh -n "$ROOT/installer/lib/ui.sh"
 sh -n "$ROOT/installer/lib/lock.sh"
 sh -n "$ROOT/installer/lib/preflight.sh"
 sh -n "$ROOT/installer/lib/prompts.sh"

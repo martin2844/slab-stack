@@ -5,6 +5,15 @@ slab_prompt_error() {
   return 1
 }
 
+slab_prompt_heading() {
+  printf '\n%s\n' "$1" > /dev/tty
+  printf '%s\n' "----------------------------------------" > /dev/tty
+}
+
+slab_prompt_note() {
+  printf '%s\n' "$@" > /dev/tty
+}
+
 slab_validate_trusted_directory_chain() {
   slab_trust_target=$1
   slab_trust_uid=$2
@@ -174,6 +183,10 @@ slab_prompt_password() {
     }
     trap restore_tty EXIT
     trap 'restore_tty; exit 130' HUP INT TERM
+    cat > /dev/tty <<'EOF'
+Slab currently uses one workspace administrator. Choose at least 12 characters.
+The raw password is never stored or logged; Slab stores only its password hash.
+EOF
     printf 'Administrator password: ' > /dev/tty
     stty -echo < /dev/tty
     IFS= read -r password < /dev/tty
@@ -210,10 +223,20 @@ slab_prompt_hidden_value() {
 }
 
 slab_collect_interactive_configuration() {
+  slab_prompt_heading "Storage"
+  slab_prompt_note \
+    "Slab keeps generated configuration below this root-private directory." \
+    "Application data lives in named Docker volumes and survives upgrades." \
+    "The default is recommended for a dedicated VPS."
   slab_prompt_value "Installation directory" "/opt/slab"
   SLAB_INSTALL_DIRECTORY=$SLAB_PROMPT_VALUE
   slab_validate_install_directory "$SLAB_INSTALL_DIRECTORY"
 
+  slab_prompt_heading "Browser access"
+  slab_prompt_note \
+    "Choose private for an SSH-only installation bound to 127.0.0.1:3009." \
+    "Choose domain to expose Caddy on ports 80/443 with automatic HTTPS." \
+    "Domain mode requires an A/AAAA DNS record pointing at this server."
   slab_prompt_value "Access mode (private/domain)" "private"
   SLAB_ACCESS_MODE=$SLAB_PROMPT_VALUE
   slab_validate_access_mode "$SLAB_ACCESS_MODE"
@@ -221,10 +244,15 @@ slab_collect_interactive_configuration() {
   SLAB_DOMAIN=
   SLAB_ACME_EMAIL=
   if [ "$SLAB_ACCESS_MODE" = domain ]; then
-    slab_prompt_value "Domain" "agents.example.com"
+    slab_prompt_note \
+      "Enter only the hostname, without https://, a path, or a port." \
+      "Caddy requests the certificate after DNS resolves to this server."
+    slab_prompt_value "Domain hostname" "agents.example.com"
     SLAB_DOMAIN=$SLAB_PROMPT_VALUE
     slab_validate_domain "$SLAB_DOMAIN"
-    slab_prompt_value "ACME email (optional)" ""
+    slab_prompt_note \
+      "An optional ACME email receives certificate-expiry and account notices."
+    slab_prompt_value "ACME contact email (optional)" ""
     SLAB_ACME_EMAIL=$SLAB_PROMPT_VALUE
     slab_validate_email "$SLAB_ACME_EMAIL"
     # Read by the versioned installer after this sourced helper returns.
@@ -236,7 +264,14 @@ slab_collect_interactive_configuration() {
     SLAB_PUBLIC_URL=http://127.0.0.1:3009
   fi
 
-  slab_prompt_value "Persistent memory (disabled/managed/self_hosted)" "disabled"
+  slab_prompt_heading "Persistent agent memory"
+  slab_prompt_note \
+    "disabled: no cross-conversation memory; enable it later from Settings." \
+    "managed: use Honcho's hosted API; requires a Honcho API key." \
+    "self_hosted: keep Honcho storage on this VPS, with extra containers." \
+    "Self-hosted Honcho still uses OpenAI for derivation and embeddings, so it" \
+    "requires an OpenAI API key and may incur OpenAI usage charges."
+  slab_prompt_value "Memory mode (disabled/managed/self_hosted)" "disabled"
   SLAB_MEMORY_MODE=$SLAB_PROMPT_VALUE
   slab_validate_memory_mode "$SLAB_MEMORY_MODE"
   SLAB_HONCHO_URL=https://api.honcho.dev
@@ -248,6 +283,9 @@ slab_collect_interactive_configuration() {
   SLAB_HONCHO_OPENAI_API_KEY=
   case "$SLAB_MEMORY_MODE" in
     managed)
+      slab_prompt_note \
+        "Managed Honcho receives the selected memory context. Its API key is" \
+        "written only to a root-private Docker secret file."
       slab_prompt_value "Honcho URL" "https://api.honcho.dev"
       SLAB_HONCHO_URL=$SLAB_PROMPT_VALUE
       slab_validate_honcho_url "$SLAB_HONCHO_URL"
@@ -261,12 +299,13 @@ slab_collect_interactive_configuration() {
       SLAB_PROMPT_SECRET=
       ;;
     self_hosted)
-      echo "Self-hosted Honcho keeps memory data on this server." > /dev/tty
-      echo "Its derivation and embedding workers still call OpenAI with the key below." > /dev/tty
+      slab_prompt_note \
+        "Self-hosted Honcho keeps PostgreSQL/pgvector and Redis data here." \
+        "Its derivation and embedding workers send relevant memory input to OpenAI."
       slab_prompt_value "Honcho workspace ID" "slab"
       SLAB_HONCHO_WORKSPACE_ID=$SLAB_PROMPT_VALUE
       slab_validate_honcho_workspace "$SLAB_HONCHO_WORKSPACE_ID"
-      slab_prompt_hidden_value "OpenAI API key for Honcho"
+      slab_prompt_hidden_value "OpenAI API key for Honcho derivation and embeddings"
       # Read by the versioned installer after this sourced helper returns.
       # shellcheck disable=SC2034
       SLAB_HONCHO_OPENAI_API_KEY=$SLAB_PROMPT_SECRET
