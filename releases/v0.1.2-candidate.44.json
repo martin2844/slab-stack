@@ -1,0 +1,85 @@
+{
+  "schemaVersion": 1,
+  "stackVersion": "0.1.2-candidate.44",
+  "channel": "candidate",
+  "releasedAt": "2026-08-29T11:14:28Z",
+  "minimumSlabctlVersion": "0.1.0-candidate.10",
+  "images": {
+    "agents": {
+      "ref": "ghcr.io/martin2844/slab-agents:candidate-61ade9183088611ddd26611cdd84da79695dcfc6",
+      "digest": "sha256:09c71a13d8bac1c3d6d6264c20e1c1b928569d34ba3094b7b5c2f8aed5764238",
+      "platforms": ["linux/amd64", "linux/arm64"]
+    },
+    "work": {
+      "ref": "ghcr.io/martin2844/slab:candidate-b7334f066ec37494a9eb15e8988c53253d743719",
+      "digest": "sha256:ccd063518f82c8096e16eb85d7b491e6114882292268437193ba80274aad9ba5",
+      "platforms": ["linux/amd64", "linux/arm64"]
+    },
+    "docs": {
+      "ref": "ghcr.io/martin2844/slab-docs:candidate-975ea03ac3ecc70f99d04b3243730750de6bf39a",
+      "digest": "sha256:0e1f3cb59d5dd416d0ce5e4f29c459006dccd5d9b7369d45facfe781b453b365",
+      "platforms": ["linux/amd64", "linux/arm64"]
+    },
+    "email": {
+      "ref": "ghcr.io/martin2844/slab-email:candidate-32f47bfb0950ac11f89a1795686cdf586c88b58a",
+      "digest": "sha256:3279fd3e5c096c4b55482d12cec674ae8c27f9357f7b91e0736a3efe051bb287",
+      "platforms": ["linux/amd64", "linux/arm64"]
+    },
+    "runner": {
+      "ref": "ghcr.io/martin2844/slab-runner:candidate-b60d0762ebe5612ad665f21ef34ef9d389151dfa",
+      "digest": "sha256:e14c4398ac73dfe59f03a0217081f7241ad224a817ffdbfe38a49a2ed1c6208c",
+      "platforms": ["linux/amd64", "linux/arm64"]
+    }
+  },
+  "codexVersion": "0.148.0",
+  "geminiCliVersion": "0.56.0",
+  "migrationCompatibility": {
+    "minimumUpgradeStack": "0.1.0-candidate.1",
+    "minimumRollbackStack": "0.1.2-candidate.42"
+  },
+  "dataCompatibility": {
+    "schemaVersion": 1,
+    "volumes": {
+      "agents_data": {
+        "migrations": [
+          "202608160001_initial_control_plane.cjs",
+          "202608170002_agent_full_access.cjs",
+          "202608170003_integrations.cjs",
+          "202608170004_agent_quick_actions.cjs",
+          "202608170005_work_coordination.cjs",
+          "202608170006_run_execution_semantics.cjs",
+          "202608180007_email_integration.cjs",
+          "202608190010_custom_integrations.cjs",
+          "202608190011_fix_custom_integrations.cjs",
+          "202608200012_single_user_auth.cjs",
+          "202608230013_calendar_integrations.cjs",
+          "202608230014_integration_snapshot_markers.cjs",
+          "202608230015_oauth_state_version.cjs",
+          "202608240016_durable_dispatch.cjs",
+          "202608240017_runner_resume_cursor.cjs",
+          "202608240018_operator_packs.cjs",
+          "202608240019_operator_pack_resource_provenance.cjs",
+          "202608240020_operator_pack_reattachable.cjs",
+          "202608240021_operator_pack_acceptance_version.cjs",
+          "202608240022_runtime_provider_choice.cjs",
+          "202608240023_run_budgets.cjs",
+          "202608240024_budget_exposure_index.cjs",
+          "202608240024_direct_api_runtime.cjs",
+          "202608240025_gemini_runtime.cjs",
+          "202608270026_agent_tool_policies.cjs",
+          "202608270027_email_automations.cjs",
+          "202608270028_email_automation_retries.cjs",
+          "202608270029_openrouter_runtime.cjs",
+          "202608270030_usage_cost_provenance.cjs",
+          "202608270031_system_updates.cjs",
+          "202608280032_knowledge_sources.cjs",
+          "202608280033_knowledge_source_access.cjs",
+          "202608280034_email_workflows.cjs"
+        ]
+      },
+      "work_data": { "migrations": ["1", "2"] },
+      "docs_data": { "migrations": ["1", "2", "3"] },
+      "email_data": { "migrations": ["1", "2", "3", "4"] }
+    }
+  }
+}
