@@ -243,26 +243,57 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          admin_password=$(sudo sed -n '1p' /root/slab-upgrade/qa-password)
-          echo "::add-mask::$admin_password"
-          jq -nc --arg password "$admin_password" '{password:$password}' |
-            curl --fail --silent --show-error \
-              --cookie-jar /tmp/slab-upgrade-cookies \
+          post_json() {
+            local label=$1
+            local url=$2
+            local cookie_mode=$3
+            local response_file http_status raw_error_code error_code
+            response_file=$(mktemp)
+            local -a cookie_args=(--cookie /tmp/slab-upgrade-cookies)
+            if [[ "$cookie_mode" == "create" ]]; then
+              cookie_args=(--cookie-jar /tmp/slab-upgrade-cookies)
+            fi
+            if ! http_status=$(curl --silent --show-error \
+              --max-time 30 --max-filesize 1048576 \
+              --output "$response_file" --write-out '%{http_code}' \
+              "${cookie_args[@]}" \
               --header 'Origin: http://127.0.0.1:3009' \
               --header 'Content-Type: application/json' \
-              --data-binary @- http://127.0.0.1:3009/api/auth/login |
-            jq -e '.data.authenticated == true' >/dev/null
+              --data-binary @- "$url"); then
+              rm -f "$response_file"
+              echo "$label failed before an HTTP response was received." >&2
+              return 1
+            fi
+            if [[ ! "$http_status" =~ ^2[0-9][0-9]$ ]]; then
+              raw_error_code=$(jq -r '.error.code? // empty' \
+                "$response_file" 2>/dev/null || true)
+              error_code=$(printf '%s' "$raw_error_code" |
+                tr -cd '[:alnum:]_.-')
+              error_code=${error_code:0:80}
+              rm -f "$response_file"
+              echo "$label failed (HTTP $http_status, code: ${error_code:-unknown})." >&2
+              return 1
+            fi
+            cat "$response_file"
+            rm -f "$response_file"
+          }
+
+          admin_password=$(sudo sed -n '1p' /root/slab-upgrade/qa-password)
+          echo "::add-mask::$admin_password"
+          login_response=$(jq -nc --arg password "$admin_password" '{password:$password}' |
+            post_json "Authentication" \
+              http://127.0.0.1:3009/api/auth/login create)
+          jq -e '.data.authenticated == true' <<<"$login_response" >/dev/null
+          echo "Authenticated against the previous stable control plane."
 
           agent_id=$(jq -nc \
             '{name:"Upgrade Sentinel",role:"Release validation",instructions:"Persist across the stable upgrade.",model:"default",enabled:true,fullAccess:false}' |
-            curl --fail --silent --show-error \
-              --cookie /tmp/slab-upgrade-cookies \
-              --header 'Origin: http://127.0.0.1:3009' \
-              --header 'Content-Type: application/json' \
-              --data-binary @- http://127.0.0.1:3009/api/agents |
+            post_json "Agents sentinel seed" \
+              http://127.0.0.1:3009/api/agents reuse |
             jq -er .data.id)
           printf '%s\n' "$agent_id" |
             sudo tee /root/slab-upgrade/agent-id >/dev/null
+          echo "Seeded the Agents sentinel."
 
           sudo docker exec -i slab-slab-api-1 node --input-type=module <<'NODE'
           import fs from 'node:fs';
@@ -274,39 +305,33 @@ jobs:
           });
           if (!response.ok) throw new Error(`Work seed failed: ${response.status}`);
           NODE
+          echo "Seeded the Work project."
           issue_key=$(jq -nc \
             '{project_key:"UPG",title:"Upgrade sentinel issue",description:"Must survive the stable update.",type:"task",priority:"low",labels:[]}' |
-            curl --fail --silent --show-error \
-              --cookie /tmp/slab-upgrade-cookies \
-              --header 'Origin: http://127.0.0.1:3009' \
-              --header 'Content-Type: application/json' \
-              --data-binary @- http://127.0.0.1:3009/api/work/issues |
+            post_json "Work issue seed" \
+              http://127.0.0.1:3009/api/work/issues reuse |
             jq -er .data.key)
           printf '%s\n' "$issue_key" |
             sudo tee /root/slab-upgrade/issue-key >/dev/null
+          echo "Seeded the Work issue."
 
           doc_id=$(jq -nc \
             '{title:"Upgrade sentinel document",body:"Must survive the stable update.",tags:["release-qa"]}' |
-            curl --fail --silent --show-error \
-              --cookie /tmp/slab-upgrade-cookies \
-              --header 'Origin: http://127.0.0.1:3009' \
-              --header 'Content-Type: application/json' \
-              --data-binary @- http://127.0.0.1:3009/api/docs |
+            post_json "Docs sentinel seed" \
+              http://127.0.0.1:3009/api/docs reuse |
             jq -er .data.id)
           printf '%s\n' "$doc_id" |
             sudo tee /root/slab-upgrade/doc-id >/dev/null
+          echo "Seeded the Docs sentinel."
 
           email_id=$(jq -nc \
             '{provider:"imap-smtp",emailAddress:"upgrade@example.test",displayName:"Upgrade QA",imapHost:"127.0.0.1",imapPort:1993,imapTlsMode:"none",smtpHost:"127.0.0.1",smtpPort:1587,smtpTlsMode:"none",username:"upgrade",password:"test-only-upgrade-secret"}' |
-            curl --fail --silent --show-error \
-              --cookie /tmp/slab-upgrade-cookies \
-              --header 'Origin: http://127.0.0.1:3009' \
-              --header 'Content-Type: application/json' \
-              --data-binary @- \
-              http://127.0.0.1:3009/api/integrations/email/accounts |
+            post_json "Email sentinel seed" \
+              http://127.0.0.1:3009/api/integrations/email/accounts reuse |
             jq -er .data.id)
           printf '%s\n' "$email_id" |
             sudo tee /root/slab-upgrade/email-id >/dev/null
+          echo "Seeded the Email sentinel."
           sudo chmod 0600 /root/slab-upgrade/agent-id \
             /root/slab-upgrade/issue-key /root/slab-upgrade/doc-id \
             /root/slab-upgrade/email-id
