@@ -197,3 +197,7 @@ sudo slabctl support-bundle
 The support archive is bounded, sanitized, root-private, and prints its exact
 file list for review before creation. It excludes product databases, prompts,
 messages, tool payloads, documents, and credential values.
+
+## License
+
+[MIT](LICENSE)
