@@ -17,7 +17,7 @@ const imageEnvironmentRenderer = path.join(
 const candidatePath = path.join(
   root,
   "releases",
-  "v0.1.2-candidate.44.json",
+  "v0.1.2-candidate.45.json",
 );
 const example = JSON.parse(
   fs.readFileSync(path.join(root, "releases", "example-manifest.json"), "utf8"),
@@ -77,7 +77,7 @@ test("accepts the immutable candidate release manifest", () => {
   assert.equal(candidate.geminiCliVersion, "0.56.0");
   assert.deepEqual(
     candidate.dataCompatibility.volumes.email_data.migrations,
-    ["1", "2", "3", "4"],
+    ["1", "2", "3", "4", "5", "6"],
   );
 });
 
