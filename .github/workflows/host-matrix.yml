@@ -328,7 +328,7 @@ jobs:
             '{provider:"imap-smtp",emailAddress:"upgrade@example.test",displayName:"Upgrade QA",imapHost:"127.0.0.1",imapPort:1993,imapTlsMode:"none",smtpHost:"127.0.0.1",smtpPort:1587,smtpTlsMode:"none",username:"upgrade",password:"test-only-upgrade-secret"}' |
             post_json "Email sentinel seed" \
               http://127.0.0.1:3009/api/integrations/email/accounts reuse |
-            jq -er .data.id)
+            jq -er .data.account.id)
           printf '%s\n' "$email_id" |
             sudo tee /root/slab-upgrade/email-id >/dev/null
           echo "Seeded the Email sentinel."
