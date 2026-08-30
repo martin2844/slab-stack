@@ -115,12 +115,21 @@ the protected `SLAB_RELEASE_SIGNING_KEY_PEM` GitHub Actions secret. CI derives
 the public key from that secret and refuses to publish unless it equals
 [`contracts/release-signing-public.pem`](contracts/release-signing-public.pem).
 
-Download and inspect the stable bootstrap, then run it as root:
+Install the latest signed stable release with one versionless command:
+
+```bash
+curl --proto '=https' --tlsv1.2 -fsSL \
+  https://github.com/martin2844/slab-stack/releases/latest/download/install.sh \
+  | sudo sh
+```
+
+The installer reads interactive answers from the terminal even when the script
+arrives through a pipe. To inspect the bootstrap first instead:
 
 ```bash
 curl --proto '=https' --tlsv1.2 --fail --silent --show-error --location \
   --output install.sh \
-  https://github.com/martin2844/slab-stack/releases/download/v0.1.1/install.sh
+  https://github.com/martin2844/slab-stack/releases/latest/download/install.sh
 less install.sh
 sudo sh install.sh
 ```
