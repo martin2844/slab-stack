@@ -29,7 +29,7 @@ hosts. Ubuntu 26.04 arm64 is also outside the current stable promise.
 - The guided server-IP mode binds the panel to the VPS address on port `3009`.
   Declarative installations may still choose a loopback-only binding.
 - Domain mode uses Caddy for reverse proxying and automatic TLS.
-- Codex CLI `0.148.0` is the stable runtime pairing for Slab `0.1.0`.
+- Codex CLI `0.148.0` is the stable runtime pairing for Slab `0.1.2`.
 - Gemini CLI `0.56.0` is an experimental account-authenticated runtime. Its
   OAuth state is isolated in a dedicated Runner volume and hard-budget Runs
   fail closed because the CLI has no native token/cost ceiling. The volume is

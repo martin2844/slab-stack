@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "channel": "stable",
-  "stackVersion": "0.1.1",
-  "manifestUrl": "https://github.com/martin2844/slab-stack/releases/download/v0.1.1/v0.1.1.json",
-  "manifestSha256": "baa3d277efebbe7e4ced22ea408311a00a9d54a3fdd7c3933c7d74a4fc00a924"
+  "stackVersion": "0.1.2",
+  "manifestUrl": "https://github.com/martin2844/slab-stack/releases/download/v0.1.2/v0.1.2.json",
+  "manifestSha256": "d36834c1c3c6a5e6561086cb1109a8c39c4799633b5588bdc783643420099883"
 }

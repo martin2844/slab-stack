@@ -12,6 +12,16 @@ on:
         required: false
         default: false
         type: boolean
+      upgrade_from_version:
+        description: Previous stable version exercised through the signed updater
+        required: false
+        default: ""
+        type: string
+      upgrade_channel:
+        description: Signed target channel embedded in the staged release
+        required: false
+        default: stable
+        type: string
   workflow_dispatch:
     inputs:
       release_version:
@@ -24,6 +34,19 @@ on:
         required: false
         default: false
         type: boolean
+      upgrade_from_version:
+        description: Previous stable version exercised through the signed updater
+        required: false
+        default: ""
+        type: string
+      upgrade_channel:
+        description: Signed target channel embedded in the staged release
+        required: false
+        default: candidate
+        type: choice
+        options:
+          - candidate
+          - stable
 
 permissions:
   contents: read
@@ -144,3 +167,214 @@ jobs:
             jq -e '.installedVersion == env.SLAB_RELEASE_VERSION and all(.checks[]; .status != "fail")' >/dev/null
           sudo rm -f /root/slab-matrix/qa-password \
             /root/slab-matrix/release-selection /tmp/slab-cookies
+
+  stable-upgrade:
+    if: inputs.upgrade_from_version != ''
+    name: ${{ matrix.label }} upgrade
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: Ubuntu 24.04 amd64
+            runner: ubuntu-24.04
+            architecture: amd64
+          - label: Ubuntu 24.04 arm64
+            runner: ubuntu-24.04-arm
+            architecture: arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 40
+    env:
+      SLAB_RELEASE_VERSION: ${{ inputs.release_version }}
+      SLAB_UPGRADE_FROM_VERSION: ${{ inputs.upgrade_from_version }}
+      SLAB_UPGRADE_CHANNEL: ${{ inputs.upgrade_channel }}
+      SLAB_METADATA_REPAIR_VERSION: 0.1.2-candidate.23
+    steps:
+      - name: Verify native host
+        shell: bash
+        run: |
+          set -euo pipefail
+          source /etc/os-release
+          test "$ID" = ubuntu
+          test "$VERSION_ID" = 24.04
+          test "$(dpkg --print-architecture)" = "${{ matrix.architecture }}"
+
+      - name: Normalize hosted-runner trust boundaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          for directory in /opt /usr/local /usr/local/bin /usr/local/lib; do
+            sudo chown root:root "$directory"
+            sudo chmod go-w "$directory"
+          done
+
+      - name: Install previous stable release
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo install -d -m 0700 /root/slab-upgrade
+          admin_password=$(openssl rand -hex 24)
+          echo "::add-mask::$admin_password"
+          printf '%s\n' "$admin_password" |
+            sudo tee /root/slab-upgrade/admin-password >/dev/null
+          sudo chmod 0600 /root/slab-upgrade/admin-password
+          sudo tee /root/slab-upgrade/install.conf >/dev/null <<'EOF'
+          SLAB_INSTALL_DIRECTORY=/opt/slab
+          SLAB_ACCESS_MODE=private
+          SLAB_PRIVATE_BIND_IP=127.0.0.1
+          SLAB_PRIVATE_PORT=3009
+          SLAB_COMPOSE_PROJECT_NAME=slab
+          SLAB_ADMIN_PASSWORD_FILE=/root/slab-upgrade/admin-password
+          EOF
+          sudo chmod 0600 /root/slab-upgrade/install.conf
+          curl --proto '=https' --tlsv1.2 --fail --silent --show-error \
+            --location --output /tmp/slab-previous-install.sh \
+            "https://github.com/${GITHUB_REPOSITORY}/releases/download/v${SLAB_UPGRADE_FROM_VERSION}/install.sh"
+          sudo sh /tmp/slab-previous-install.sh \
+            --version "$SLAB_UPGRADE_FROM_VERSION" -- \
+            --non-interactive --config /root/slab-upgrade/install.conf
+          printf '%s\n' "$admin_password" |
+            sudo tee /root/slab-upgrade/qa-password >/dev/null
+          sudo chmod 0600 /root/slab-upgrade/qa-password
+          sudo rm -f /root/slab-upgrade/admin-password
+          test "$(sudo sed -n '1p' /opt/slab/VERSION)" = \
+            "$SLAB_UPGRADE_FROM_VERSION"
+
+      - name: Seed durable cross-service state
+        shell: bash
+        run: |
+          set -euo pipefail
+          admin_password=$(sudo sed -n '1p' /root/slab-upgrade/qa-password)
+          echo "::add-mask::$admin_password"
+          jq -nc --arg password "$admin_password" '{password:$password}' |
+            curl --fail --silent --show-error \
+              --cookie-jar /tmp/slab-upgrade-cookies \
+              --header 'Origin: http://127.0.0.1:3009' \
+              --header 'Content-Type: application/json' \
+              --data-binary @- http://127.0.0.1:3009/api/auth/login |
+            jq -e '.data.authenticated == true' >/dev/null
+
+          agent_id=$(jq -nc \
+            '{name:"Upgrade Sentinel",role:"Release validation",instructions:"Persist across the stable upgrade.",model:"default",enabled:true,fullAccess:false}' |
+            curl --fail --silent --show-error \
+              --cookie /tmp/slab-upgrade-cookies \
+              --header 'Origin: http://127.0.0.1:3009' \
+              --header 'Content-Type: application/json' \
+              --data-binary @- http://127.0.0.1:3009/api/agents |
+            jq -er .data.id)
+          printf '%s\n' "$agent_id" |
+            sudo tee /root/slab-upgrade/agent-id >/dev/null
+
+          sudo docker exec -i slab-slab-api-1 node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const apiKey = fs.readFileSync('/run/secrets/work_api_key', 'utf8').trim();
+          const response = await fetch('http://127.0.0.1:6970/api/projects', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json', 'x-api-key': apiKey },
+            body: JSON.stringify({ key: 'UPG', name: 'Upgrade QA' }),
+          });
+          if (!response.ok) throw new Error(`Work seed failed: ${response.status}`);
+          NODE
+          issue_key=$(jq -nc \
+            '{project_key:"UPG",title:"Upgrade sentinel issue",description:"Must survive the stable update.",type:"task",priority:"low",labels:[]}' |
+            curl --fail --silent --show-error \
+              --cookie /tmp/slab-upgrade-cookies \
+              --header 'Origin: http://127.0.0.1:3009' \
+              --header 'Content-Type: application/json' \
+              --data-binary @- http://127.0.0.1:3009/api/work/issues |
+            jq -er .data.key)
+          printf '%s\n' "$issue_key" |
+            sudo tee /root/slab-upgrade/issue-key >/dev/null
+
+          doc_id=$(jq -nc \
+            '{title:"Upgrade sentinel document",body:"Must survive the stable update.",tags:["release-qa"]}' |
+            curl --fail --silent --show-error \
+              --cookie /tmp/slab-upgrade-cookies \
+              --header 'Origin: http://127.0.0.1:3009' \
+              --header 'Content-Type: application/json' \
+              --data-binary @- http://127.0.0.1:3009/api/docs |
+            jq -er .data.id)
+          printf '%s\n' "$doc_id" |
+            sudo tee /root/slab-upgrade/doc-id >/dev/null
+
+          email_id=$(jq -nc \
+            '{provider:"imap-smtp",emailAddress:"upgrade@example.test",displayName:"Upgrade QA",imapHost:"127.0.0.1",imapPort:1993,imapTlsMode:"none",smtpHost:"127.0.0.1",smtpPort:1587,smtpTlsMode:"none",username:"upgrade",password:"test-only-upgrade-secret"}' |
+            curl --fail --silent --show-error \
+              --cookie /tmp/slab-upgrade-cookies \
+              --header 'Origin: http://127.0.0.1:3009' \
+              --header 'Content-Type: application/json' \
+              --data-binary @- \
+              http://127.0.0.1:3009/api/integrations/email/accounts |
+            jq -er .data.id)
+          printf '%s\n' "$email_id" |
+            sudo tee /root/slab-upgrade/email-id >/dev/null
+          sudo chmod 0600 /root/slab-upgrade/agent-id \
+            /root/slab-upgrade/issue-key /root/slab-upgrade/doc-id \
+            /root/slab-upgrade/email-id
+
+      - name: Apply staged signed stable release
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --proto '=https' --tlsv1.2 --fail --silent --show-error \
+            --location --output /tmp/slab-metadata-repair-install.sh \
+            "https://github.com/${GITHUB_REPOSITORY}/releases/download/v${SLAB_METADATA_REPAIR_VERSION}/install.sh"
+          sudo sh /tmp/slab-metadata-repair-install.sh \
+            --version "$SLAB_METADATA_REPAIR_VERSION" -- --repair-known-metadata
+          channel_base="https://github.com/${GITHUB_REPOSITORY}/releases/download/v${SLAB_RELEASE_VERSION}"
+          update_check=$(sudo env SLAB_RELEASE_CHANNEL_BASE_URL="$channel_base" \
+            slabctl update check --channel "$SLAB_UPGRADE_CHANNEL")
+          grep -F "Installed: $SLAB_UPGRADE_FROM_VERSION" <<<"$update_check"
+          grep -F "Available: $SLAB_RELEASE_VERSION" <<<"$update_check"
+          grep -F "Status: update available" <<<"$update_check"
+          sudo env SLAB_RELEASE_CHANNEL_BASE_URL="$channel_base" \
+            slabctl update apply --channel "$SLAB_UPGRADE_CHANNEL" --yes
+
+      - name: Verify migrated state and mandatory backup
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(sudo sed -n '1p' /opt/slab/VERSION)" = "$SLAB_RELEASE_VERSION"
+          test "$(sudo jq -r .status /opt/slab/config/install-state.json)" = \
+            READY_NO_RUNTIME
+          test "$(systemctl is-active slab.service)" = active
+          curl --fail --silent --show-error http://127.0.0.1:3009/ready >/dev/null
+
+          admin_password=$(sudo sed -n '1p' /root/slab-upgrade/qa-password)
+          echo "::add-mask::$admin_password"
+          jq -nc --arg password "$admin_password" '{password:$password}' |
+            curl --fail --silent --show-error \
+              --cookie-jar /tmp/slab-upgrade-cookies \
+              --header 'Origin: http://127.0.0.1:3009' \
+              --header 'Content-Type: application/json' \
+              --data-binary @- http://127.0.0.1:3009/api/auth/login |
+            jq -e '.data.authenticated == true' >/dev/null
+
+          agent_id=$(sudo sed -n '1p' /root/slab-upgrade/agent-id)
+          issue_key=$(sudo sed -n '1p' /root/slab-upgrade/issue-key)
+          doc_id=$(sudo sed -n '1p' /root/slab-upgrade/doc-id)
+          email_id=$(sudo sed -n '1p' /root/slab-upgrade/email-id)
+          curl --fail --silent --show-error \
+            --cookie /tmp/slab-upgrade-cookies http://127.0.0.1:3009/api/agents |
+            jq -e --arg id "$agent_id" 'any(.data[]; .id == $id)' >/dev/null
+          curl --fail --silent --show-error \
+            --cookie /tmp/slab-upgrade-cookies \
+            'http://127.0.0.1:3009/api/work/issues?project=UPG' |
+            jq -e --arg key "$issue_key" 'any(.data[]; .key == $key)' >/dev/null
+          curl --fail --silent --show-error \
+            --cookie /tmp/slab-upgrade-cookies \
+            'http://127.0.0.1:3009/api/docs?q=Upgrade%20sentinel' |
+            jq -e --arg id "$doc_id" 'any(.data[]; .id == $id)' >/dev/null
+          curl --fail --silent --show-error \
+            --cookie /tmp/slab-upgrade-cookies \
+            http://127.0.0.1:3009/api/integrations/email/accounts |
+            jq -e --arg id "$email_id" 'any(.data[]; .id == $id)' >/dev/null
+
+          sudo slabctl doctor --json |
+            jq -e '.installedVersion == env.SLAB_RELEASE_VERSION and all(.checks[]; .status != "fail")' \
+              >/dev/null
+          update_state=/opt/slab/config/update-state.json
+          test "$(sudo jq -r .status "$update_state")" = UPDATED
+          backup_path=$(sudo jq -er .backupPath "$update_state")
+          sudo slabctl backup verify "$backup_path"
+          sudo rm -f /root/slab-upgrade/qa-password \
+            /tmp/slab-upgrade-cookies

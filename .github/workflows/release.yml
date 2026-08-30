@@ -110,6 +110,8 @@ jobs:
     uses: ./.github/workflows/host-matrix.yml
     with:
       release_version: ${{ needs.release.outputs.version }}
+      upgrade_from_version: 0.1.1
+      upgrade_channel: stable
 
   publish-channel:
     needs: [release, stable-host-matrix]
@@ -135,7 +137,7 @@ jobs:
               --jq .id)
             gh api --method PATCH \
               "repos/$GITHUB_REPOSITORY/releases/$release_id" \
-              -F prerelease=false -f make_latest=true >/dev/null
+              -F prerelease=false -f make_latest=false >/dev/null
           fi
           mkdir dist
           gh release download "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
@@ -148,3 +150,14 @@ jobs:
           fi
           gh release upload "$channel_tag" --repo "$GITHUB_REPOSITORY" \
             "dist/$CHANNEL.json" "dist/$CHANNEL.json.sig" --clobber
+          mkdir verified
+          gh release download "$channel_tag" --repo "$GITHUB_REPOSITORY" \
+            --pattern "$CHANNEL.json" --pattern "$CHANNEL.json.sig" \
+            --dir verified
+          cmp -s "dist/$CHANNEL.json" "verified/$CHANNEL.json"
+          cmp -s "dist/$CHANNEL.json.sig" "verified/$CHANNEL.json.sig"
+          if [[ "$CHANNEL" == stable ]]; then
+            gh api --method PATCH \
+              "repos/$GITHUB_REPOSITORY/releases/$release_id" \
+              -F prerelease=false -f make_latest=true >/dev/null
+          fi

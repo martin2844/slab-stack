@@ -61,13 +61,13 @@ jq -e \
    .manifestSha256 == $expected_sha256' \
   "$ROOT/channels/candidate.json" >/dev/null
 
-stable_manifest=$ROOT/releases/v0.1.1.json
+stable_manifest=$ROOT/releases/v0.1.2.json
 stable_manifest_sha256=$(sha256sum "$stable_manifest" | awk '{print $1}')
 jq -e \
   --arg expected_sha256 "$stable_manifest_sha256" \
   '.schemaVersion == 1 and
    .channel == "stable" and
-   .stackVersion == "0.1.1" and
+   .stackVersion == "0.1.2" and
    .manifestSha256 == $expected_sha256' \
   "$ROOT/channels/stable.json" >/dev/null
 

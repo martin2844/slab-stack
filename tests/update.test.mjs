@@ -1259,9 +1259,9 @@ test("update CLI option validation rejects action-inappropriate flags", () => {
   assert.equal(result.status, 0, result.stderr);
 });
 
-test("current candidate upgrades stable without declaring unsafe image rollback", () => {
+test("stable promotion preserves candidate inventory and supersedes its prerelease", () => {
   const stable = JSON.parse(
-    fs.readFileSync(path.join(root, "releases/v0.1.1.json"), "utf8"),
+    fs.readFileSync(path.join(root, "releases/v0.1.2.json"), "utf8"),
   );
   const candidate = JSON.parse(
     fs.readFileSync(
@@ -1274,15 +1274,24 @@ test("current candidate upgrades stable without declaring unsafe image rollback"
     [
       '. "$1"',
       'slabctl_update_is_newer "$2" "$3"',
-      '! slabctl_update_version_at_least "$2" "$4"',
+      'slabctl_update_version_at_least "$2" "$4"',
     ].join("; "),
-    "candidate-ordering-test",
+    "stable-promotion-ordering-test",
     path.join(root, "installer/lib/update.sh"),
-    stable.stackVersion,
     candidate.stackVersion,
-    candidate.migrationCompatibility.minimumRollbackStack,
+    stable.stackVersion,
+    stable.migrationCompatibility.minimumRollbackStack,
   ]);
   assert.equal(result.status, 0, result.stderr);
+
+  const normalizedStable = structuredClone(stable);
+  const normalizedCandidate = structuredClone(candidate);
+  for (const manifest of [normalizedStable, normalizedCandidate]) {
+    delete manifest.stackVersion;
+    delete manifest.channel;
+    delete manifest.releasedAt;
+  }
+  assert.deepEqual(normalizedStable, normalizedCandidate);
 });
 
 test("email workflow migration makes candidate 41 image rollback unsafe", () => {
