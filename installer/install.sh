@@ -2,7 +2,7 @@
 set -eu
 
 BUNDLE_ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
-DEFAULT_MANIFEST=$BUNDLE_ROOT/releases/v0.1.2-candidate.45.json
+DEFAULT_MANIFEST=$BUNDLE_ROOT/releases/v0.1.3-candidate.1.json
 
 # shellcheck source=installer/lib/preflight.sh
 . "$BUNDLE_ROOT/installer/lib/preflight.sh"
@@ -118,6 +118,20 @@ slab_installer_exit() {
       slab_print_bounded_service_logs "$failing_service"
     fi
     echo "No application data or generated secrets were deleted." >&2
+  fi
+  if [ "$SLAB_INSTALL_PHASE" = admin_configured ] && [ "$SLAB_INSTALL_STARTED" -eq 0 ]; then
+    # Optional login helpers can persist readiness before an interrupt reaches us.
+    final_state=$(jq -r '.status' "$SLAB_INSTALL_DIRECTORY/config/install-state.json" 2>/dev/null || true)
+    case "$final_state" in
+      READY) completion_state=$final_state; runtime_authenticated=1 ;;
+      READY_NO_RUNTIME) completion_state=$final_state; runtime_authenticated=0 ;;
+      TLS_PENDING) completion_state=$final_state ;;
+    esac
+    if [ "$exit_status" -ne 0 ]; then
+      echo
+      echo "Optional setup was interrupted. Your Slab installation is complete."
+    fi
+    slab_ui_print_completion "$completion_state" "$admin_readiness" "$runtime_authenticated"
   fi
 }
 
@@ -376,43 +390,6 @@ slab_write_install_state \
 SLAB_INSTALL_STARTED=0
 
 slab_ui_print_success
-if [ "$SLAB_ACCESS_MODE" = private ]; then
-  slab_ui_section "Open Slab in your browser"
-  if [ "$SLAB_PRIVATE_BIND_IP" = 127.0.0.1 ]; then
-    cat <<EOF
-Slab was configured for local-only access.
-
-1. On your computer, run:
-
-   ssh -L $SLAB_PRIVATE_PORT:127.0.0.1:$SLAB_PRIVATE_PORT <your-user>@<server-ip>
-
-2. Keep that terminal open and visit $SLAB_PUBLIC_URL in your browser.
-EOF
-  else
-    cat <<EOF
-Open this address on your computer:
-
-   $SLAB_PUBLIC_URL
-
-Sign in with the administrator password you just created.
-
-This address uses HTTP. For encrypted HTTPS, reinstall using domain access.
-If the page does not open, allow inbound TCP port $SLAB_PRIVATE_PORT in your VPS firewall.
-EOF
-  fi
-else
-  slab_ui_section "Open Slab in your browser"
-  echo "Your Slab address is: $SLAB_PUBLIC_URL"
-  if [ "$completion_state" = TLS_PENDING ]; then
-    echo
-    slab_ui_warning "The address is not ready yet."
-    echo "Make sure its DNS A record points to this server's public IP."
-    echo "Then check again with: sudo slabctl domain verify"
-  else
-    echo
-    slab_ui_success "HTTPS is ready. You can open the address now."
-  fi
-fi
 if [ "$codex_authenticated" -eq 1 ]; then
   echo "Codex authentication is active."
 else
@@ -491,5 +468,3 @@ EOF
       ;;
   esac
 fi
-echo "Installation status: $completion_state"
-echo "Run 'sudo slabctl doctor' at any time to inspect Docker, services, storage, and runtime health."

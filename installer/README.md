@@ -151,6 +151,20 @@ rest of the stack:
 ./scripts/honcho-smoke.sh
 ```
 
+## Administrator password
+
+Run `sudo slabctl changepass` on the host to change the workspace administrator
+password. It asks for the new password twice without echoing it, then revokes
+existing browser sessions. It requires an interactive terminal and accepts no
+password argument. The password is sent to Slab Agents through stdin; the host
+does not save it to a file. Existing workspace data is preserved.
+
+The installer keeps existing administrator credentials on reruns. Its final
+completion summary repeats the browser URL after optional Email and runtime
+setup, identifies whether the password was created or preserved, and shows the
+password change command. Pending TLS and missing runtime authentication remain
+explicit in that summary.
+
 ## Service lifecycle
 
 The installer installs `/etc/systemd/system/slab.service` plus the managed

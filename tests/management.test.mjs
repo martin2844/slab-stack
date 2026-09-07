@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
@@ -110,6 +110,105 @@ esac
       SLABCTL_TEST_ROOT: hostRoot,
     },
   };
+}
+
+test("changepass rejects arguments and requires a terminal", {
+  skip: process.getuid() === 0,
+}, () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "slab-changepass-"));
+  try {
+    const fixture = prepareSlabctlInvocationFixture(directory);
+    const extra = spawnSync(fixture.binary, ["changepass", "unexpected"], {
+      encoding: "utf8", env: fixture.env,
+    });
+    assert.equal(extra.status, 2, extra.stderr);
+    assert.match(extra.stderr, /sudo slabctl changepass/);
+    const noTerminal = spawnSync("setsid", [fixture.binary, "changepass"], {
+      encoding: "utf8", env: fixture.env,
+    });
+    assert.notEqual(noTerminal.status, 0);
+    assert.match(noTerminal.stderr, /interactive terminal/);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+for (const scenario of [
+  { name: "rotates through stdin without exposing the password", password: "test-only-$pass`word`\\ spaced", success: true },
+  { name: "rejects mismatched confirmation", password: "test-only-password", confirmation: "different-password", error: /passwords do not match/ },
+  { name: "rejects short passwords", password: "short", error: /12 to 256 characters/ },
+  { name: "rejects oversized passwords", password: "x".repeat(257), error: /12 to 256 characters/ },
+  { name: "reports a container failure without claiming success", password: "test-only-password", dockerFailure: true, error: /password change failed/ },
+  { name: "restores terminal echo after cancellation", password: "test-only-password", cancel: true },
+]) {
+  test(`changepass ${scenario.name}`, {
+    skip: process.getuid() === 0,
+    timeout: 15000,
+  }, async () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "slab-changepass-"));
+    try {
+      const fixture = prepareSlabctlInvocationFixture(directory);
+      const invocation = path.join(directory, "docker-invocation");
+      fs.writeFileSync(path.join(directory, "fake-bin", "docker"), `#!/bin/sh
+printf '%s\\n' "$*" > "$TEST_INVOCATION"
+IFS= read -r received
+[ "$received" = "$TEST_PASSWORD" ] || exit 97
+[ "$TEST_DOCKER_FAILURE" = 0 ] || exit 98
+`, { mode: 0o755 });
+      const result = await new Promise((resolve, reject) => {
+        const child = spawn("script", ["-qE", "always", "-ec", [
+          "trap ':' INT",
+          'before=$(stty -g)',
+          '"$TEST_SLABCTL" changepass',
+          'result=$?',
+          '[ "$before" = "$(stty -g)" ] || exit 99',
+          'printf "\\nTERMINAL_RESTORED\\n"',
+          'exit "$result"',
+        ].join("; "), "/dev/null"], {
+          env: { ...fixture.env, TEST_SLABCTL: fixture.binary,
+            TEST_PASSWORD: scenario.password, TEST_INVOCATION: invocation,
+            TEST_DOCKER_FAILURE: scenario.dockerFailure ? "1" : "0" },
+          timeout: 10000,
+        });
+        let output = "";
+        let entered = false;
+        let confirmed = false;
+        child.stdout.on("data", (chunk) => {
+          output += chunk.toString();
+          if (!entered && output.includes("New password: ")) {
+            entered = true;
+            child.stdin.write(`${scenario.password}\n`);
+          }
+          if (!confirmed && output.includes("Confirm new password: ")) {
+            confirmed = true;
+            child.stdin.write(scenario.cancel ? "\x03" : `${scenario.confirmation ?? scenario.password}\n`);
+          }
+        });
+        child.stderr.on("data", (chunk) => { output += chunk.toString(); });
+        child.on("error", reject);
+        child.on("close", (status) => resolve({ status, output }));
+      });
+      assert.match(result.output, /TERMINAL_RESTORED/, result.output);
+      assert.equal(result.output.includes(scenario.password), false, result.output);
+      if (scenario.success) {
+        assert.equal(result.status, 0, result.output);
+        assert.match(result.output, /Administrator password changed/);
+      } else {
+        assert.notEqual(result.status, 0, result.output);
+        assert.doesNotMatch(result.output, /Administrator password changed/);
+        if (scenario.error) assert.match(result.output, scenario.error);
+      }
+      assert.equal(fs.existsSync(invocation), Boolean(scenario.success || scenario.dockerFailure));
+      if (fs.existsSync(invocation)) {
+        const args = fs.readFileSync(invocation, "utf8");
+        assert.match(args, /--project-name slab /);
+        assert.match(args, /exec -T slab-agents node scripts\/admin-bootstrap\.mjs --rotate/);
+        assert.equal(args.includes(scenario.password), false);
+      }
+    } finally {
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
+  });
 }
 
 test("installs slabctl idempotently and pins it to one installation", () => {

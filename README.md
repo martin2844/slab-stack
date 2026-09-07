@@ -22,7 +22,7 @@ The implementation source of truth is:
 
 The current promoted stable stack release is recorded in
 [`releases/v0.1.2.json`](releases/v0.1.2.json). The next-release channel remains
-[`releases/v0.1.2-candidate.45.json`](releases/v0.1.2-candidate.45.json). Both pin
+[`releases/v0.1.3-candidate.1.json`](releases/v0.1.3-candidate.1.json). Both pin
 public amd64/arm64 images for all five services. This release packages the
 tested Slab Runner pairings for Codex CLI `0.148.0` and experimental Gemini CLI
 `0.56.0`; Gemini account authorization remains host-local Runner state.
@@ -75,7 +75,7 @@ templates, image pinning, network exposure, and Compose rendering with
 development fixtures. To render the immutable image environment for a release:
 
 ```bash
-node scripts/render-image-env.mjs releases/v0.1.2-candidate.45.json
+node scripts/render-image-env.mjs releases/v0.1.3-candidate.1.json
 ```
 
 Once a candidate manifest is ready, run the destructive-to-its-own-fixture only
@@ -105,7 +105,7 @@ bytes, and removes the fixture volumes on exit.
 Build the exact candidate bundle locally:
 
 ```bash
-./scripts/package-release.sh releases/v0.1.2-candidate.45.json dist
+./scripts/package-release.sh releases/v0.1.3-candidate.1.json dist
 ```
 
 The packaging step is deterministic for a given manifest and source tree. It
@@ -137,7 +137,7 @@ sudo sh install.sh
 A reviewed candidate can still be installed explicitly:
 
 ```bash
-sudo sh install.sh --version 0.1.2-candidate.45
+sudo sh install.sh --version 0.1.3-candidate.1
 ```
 
 The guided flow asks only for workspace configuration and optional integrations.
@@ -150,11 +150,23 @@ signed, one-time Email migration metadata correction before their mandatory
 pre-update backup can run. See
 [`installer/README.md`](installer/README.md#email-metadata-correction-for-affected-01x-releases).
 
+After optional onboarding, the installer prints a final completion banner,
+installation status, and browser URL. Rerunning it preserves an existing
+administrator password. To change that password on the installed host, run:
+
+```bash
+sudo slabctl changepass
+```
+
+Enter and confirm the new password at the hidden terminal prompts (12–256
+characters). The change signs out existing browser sessions and preserves
+workspace data.
+
 Bootstrap options precede installer options. For example, an inspect-only host
 check is:
 
 ```bash
-sudo sh install.sh --version 0.1.2-candidate.45 -- --dry-run
+sudo sh install.sh --version 0.1.3-candidate.1 -- --dry-run
 ```
 
 ## Repository layout
