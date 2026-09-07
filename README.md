@@ -150,6 +150,18 @@ signed, one-time Email migration metadata correction before their mandatory
 pre-update backup can run. See
 [`installer/README.md`](installer/README.md#email-metadata-correction-for-affected-01x-releases).
 
+After optional onboarding, the installer prints a final completion banner,
+installation status, and browser URL. Rerunning it preserves an existing
+administrator password. To change that password on the installed host, run:
+
+```bash
+sudo slabctl changepass
+```
+
+Enter and confirm the new password at the hidden terminal prompts (12–256
+characters). The change signs out existing browser sessions and preserves
+workspace data.
+
 Bootstrap options precede installer options. For example, an inspect-only host
 check is:
 

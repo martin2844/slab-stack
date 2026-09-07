@@ -119,6 +119,36 @@ curl -fsS -c "$cookies" \
   --data "{\"password\":\"$PASSWORD\"}" \
   "http://127.0.0.1:$PRIVATE_PORT/api/auth/login" >/dev/null
 
+# Exercise the installed host command against the real application image and
+# then consume both the old session and the replacement credential over HTTP.
+curl -fsS -b "$cookies" \
+  -H "Origin: http://127.0.0.1:$PRIVATE_PORT" \
+  -H 'Content-Type: application/json' \
+  --data '{"title":"Password rotation sentinel","body":"Must survive administrator password changes.","tags":["smoke"],"author":"Installer QA"}' \
+  "http://127.0.0.1:$PRIVATE_PORT/api/docs" >/dev/null
+rotated_password=testing-only-rotated-admin-password
+# The shell inside the PTY expands the installed command path.
+# shellcheck disable=SC2016
+printf '%s\n%s\n' "$rotated_password" "$rotated_password" |
+  SLABCTL_TEST_ROOT=$FIXTURE_DIR/host SLAB_TEST_CLI=$installed_slabctl \
+    script -qE never -ec '"$SLAB_TEST_CLI" changepass' /dev/null
+old_session_status=$(curl -sS -o /dev/null -w '%{http_code}' -b "$cookies" \
+  "http://127.0.0.1:$PRIVATE_PORT/api/docs")
+[ "$old_session_status" = 401 ]
+old_password_status=$(curl -sS -o /dev/null -w '%{http_code}' \
+  -H "Origin: http://127.0.0.1:$PRIVATE_PORT" \
+  -H 'Content-Type: application/json' \
+  --data "{\"password\":\"$PASSWORD\"}" \
+  "http://127.0.0.1:$PRIVATE_PORT/api/auth/login")
+[ "$old_password_status" = 401 ]
+curl -fsS -c "$cookies" \
+  -H "Origin: http://127.0.0.1:$PRIVATE_PORT" \
+  -H 'Content-Type: application/json' \
+  --data "{\"password\":\"$rotated_password\"}" \
+  "http://127.0.0.1:$PRIVATE_PORT/api/auth/login" >/dev/null
+curl -fsS -b "$cookies" "http://127.0.0.1:$PRIVATE_PORT/api/docs" |
+  jq -e '.data | any(.title == "Password rotation sentinel")' >/dev/null
+
 jq -e '
   .status == "READY" and
   .phase == "admin_configured" and

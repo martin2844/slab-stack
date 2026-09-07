@@ -1,5 +1,42 @@
 #!/bin/sh
 
+slabctl_changepass() (
+  # Keep secrets and terminal cleanup local; preserve the caller's traps.
+  set +x
+  if ! ( : <> /dev/tty ) 2>/dev/null; then
+    slabctl_error "changing the administrator password requires an interactive terminal"
+    exit 1
+  fi
+  exec 3<> /dev/tty
+  terminal_state=$(stty -g <&3) || exit 1
+  trap 'stty "$terminal_state" <&3 2>/dev/null || true' EXIT
+  trap 'exit 130' HUP INT TERM
+  printf '\nChange Slab administrator password\n' >&3
+  printf 'Use 12 to 256 characters. Existing browser sessions will be signed out.\n' >&3
+  stty -echo <&3 || exit 1
+  printf '\nNew password: ' >&3
+  IFS= read -r new_password <&3 || exit 1
+  printf '\nConfirm new password: ' >&3
+  IFS= read -r confirmation <&3 || exit 1
+  stty "$terminal_state" <&3 || exit 1
+  printf '\n' >&3
+  [ "$new_password" = "$confirmation" ] || {
+    slabctl_error "passwords do not match; password was not changed"
+    exit 1
+  }
+  if [ "${#new_password}" -lt 12 ] || [ "${#new_password}" -gt 256 ]; then
+    slabctl_error "administrator password must contain 12 to 256 characters; password was not changed"
+    exit 1
+  fi
+  if ! printf '%s\n' "$new_password" |
+    slabctl_compose exec -T slab-agents node scripts/admin-bootstrap.mjs --rotate
+  then
+    slabctl_error "password change failed; check Slab Agents with sudo slabctl doctor before retrying"
+    exit 1
+  fi
+  printf '\nAdministrator password changed. Sign in with your new password.\n'
+)
+
 slabctl_stack_start() {
   slabctl_compose config --quiet || {
     slabctl_error "installed Compose configuration is invalid"

@@ -121,3 +121,60 @@ Persistent product data is stored in Docker volumes and survives service
 restarts, host reboots, and signed stack updates.
 EOF
 }
+
+slab_ui_print_completion() {
+  printf '\n'
+  slab_ui_success "============================================================"
+  slab_ui_success "  SLAB INSTALLATION COMPLETE"
+  slab_ui_success "============================================================"
+  printf '\nInstallation status: %s\n' "$1"
+  if [ "$SLAB_ACCESS_MODE" = private ]; then
+    slab_ui_section "Open Slab in your browser"
+    if [ "$SLAB_PRIVATE_BIND_IP" = 127.0.0.1 ]; then
+      cat <<EOF
+Slab was configured for local-only access.
+
+1. On your computer, run:
+
+   ssh -L $SLAB_PRIVATE_PORT:127.0.0.1:$SLAB_PRIVATE_PORT <your-user>@<server-ip>
+
+2. Keep that terminal open and visit $SLAB_PUBLIC_URL in your browser.
+EOF
+    else
+      cat <<EOF
+Open this address on your computer:
+
+   $SLAB_PUBLIC_URL
+
+This address uses HTTP. For encrypted HTTPS, reinstall using domain access.
+If the page does not open, allow inbound TCP port $SLAB_PRIVATE_PORT in your VPS firewall.
+EOF
+    fi
+  else
+    slab_ui_section "Open Slab in your browser"
+    echo "Your Slab address is: $SLAB_PUBLIC_URL"
+    if [ "$1" = TLS_PENDING ]; then
+      echo
+      slab_ui_warning "The address is not ready yet."
+      echo "Make sure its DNS A record points to this server's public IP."
+      echo "Then check again with: sudo slabctl domain verify"
+    else
+      echo
+      slab_ui_success "HTTPS is ready. You can open the address now."
+    fi
+  fi
+  printf '\n'
+  if [ "$2" = 200 ]; then
+    echo "Your existing administrator password was kept. Use it to sign in."
+  else
+    echo "Sign in with the administrator password you just created."
+  fi
+  echo "To change the password: sudo slabctl changepass"
+  if [ "$3" -eq 0 ]; then
+    echo
+    echo "Connect a runtime before running agents:"
+    echo "  sudo slabctl codex login"
+  fi
+  echo
+  echo "Check installation health: sudo slabctl doctor"
+}
