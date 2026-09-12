@@ -121,6 +121,7 @@ slab_load_noninteractive_config() {
       SLAB_COMPOSE_PROJECT_NAME) SLAB_COMPOSE_PROJECT_NAME=$config_value ;;
       SLAB_ADMIN_PASSWORD_FILE) SLAB_ADMIN_PASSWORD_FILE=$config_value ;;
       SLAB_MEMORY_MODE) SLAB_MEMORY_MODE=$config_value ;;
+      SLAB_WHATSAPP_ENABLED) SLAB_WHATSAPP_ENABLED=$config_value ;;
       SLAB_HONCHO_URL) SLAB_HONCHO_URL=$config_value ;;
       SLAB_HONCHO_WORKSPACE_ID) SLAB_HONCHO_WORKSPACE_ID=$config_value ;;
       SLAB_MEMORY_MAX_CONTEXT_TOKENS) SLAB_MEMORY_MAX_CONTEXT_TOKENS=$config_value ;;
@@ -140,6 +141,8 @@ slab_finalize_noninteractive_config() {
   : "${SLAB_PRIVATE_PORT:=3009}"
   : "${SLAB_COMPOSE_PROJECT_NAME:=slab}"
   : "${SLAB_MEMORY_MODE:=disabled}"
+  : "${SLAB_WHATSAPP_ENABLED:=false}"
+  case "$SLAB_WHATSAPP_ENABLED" in true | false) ;; *) slab_config_error "SLAB_WHATSAPP_ENABLED must be true or false"; return 1 ;; esac
   : "${SLAB_HONCHO_URL:=https://api.honcho.dev}"
   : "${SLAB_HONCHO_WORKSPACE_ID:=slab}"
   : "${SLAB_MEMORY_MAX_CONTEXT_TOKENS:=900}"

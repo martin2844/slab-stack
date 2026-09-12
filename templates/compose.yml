@@ -290,6 +290,31 @@ services:
       retries: 5
       start_period: 10s
 
+  slab-whatsapp:
+    <<: *service-defaults
+    profiles: [whatsapp]
+    image: devlikeapro/waha:gows-2026.8.2@sha256:23f2d002d262b54c711af02b5fe79b1948bbf31e6b64cf7776cd6bd2f7477b47
+    networks: [control]
+    expose: ["3000"]
+    volumes:
+      - whatsapp_sessions:/app/.sessions
+    secrets:
+      - waha_api_key
+    environment:
+      WHATSAPP_DEFAULT_ENGINE: GOWS
+      WAHA_PRINT_QR: "false"
+      WAHA_DASHBOARD_ENABLED: "false"
+      WHATSAPP_SWAGGER_ENABLED: "false"
+      WAHA_API_DOWNLOAD_MEDIA: "false"
+      WHATSAPP_RESTART_ALL_SESSIONS: "true"
+    entrypoint: ["/bin/sh", "-ec", "export WHATSAPP_API_KEY=$(cat /run/secrets/waha_api_key); exec /entrypoint.sh"]
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/sessions',{headers:{'X-Api-Key':require('fs').readFileSync('/run/secrets/waha_api_key','utf8').trim()}}).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
   slab-agents:
     <<: *service-defaults
     image: ${SLAB_AGENTS_IMAGE:?SLAB_AGENTS_IMAGE is required}
@@ -305,6 +330,7 @@ services:
       - runner_token
       - email_admin_key
       - session_secret
+      - waha_api_key
       - honcho_api_key
     environment:
       HOSTNAME: 0.0.0.0
@@ -322,6 +348,8 @@ services:
       RUNNER_TOKEN_FILE: /run/secrets/runner_token
       SLAB_EMAIL_ADMIN_KEY_FILE: /run/secrets/email_admin_key
       SLAB_SESSION_SECRET_FILE: /run/secrets/session_secret
+      SLAB_WAHA_URL: http://slab-whatsapp:3000
+      SLAB_WAHA_API_KEY_FILE: /run/secrets/waha_api_key
       MEMORY_PROVIDER: ${SLAB_MEMORY_PROVIDER:-disabled}
       HONCHO_URL: ${SLAB_HONCHO_URL:-https://api.honcho.dev}
       HONCHO_API_KEY_FILE: ${SLAB_HONCHO_API_KEY_FILE_IN_CONTAINER:-}
@@ -346,6 +374,7 @@ services:
       start_period: 20s
 
 volumes:
+  whatsapp_sessions:
   agents_data:
   work_data:
   docs_data:
@@ -356,6 +385,8 @@ volumes:
   honcho_redis_data:
 
 secrets:
+  waha_api_key:
+    file: ./secrets/waha-api-key
   work_api_key:
     file: ./secrets/work-api-key
   docs_api_key:

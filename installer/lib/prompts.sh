@@ -390,4 +390,12 @@ slab_collect_interactive_configuration() {
       ;;
   esac
 
+  slab_prompt_heading "WhatsApp"
+  slab_prompt_note "Install the optional WhatsApp service now, then scan its QR in Slab Integrations."
+  slab_prompt_value "Install WhatsApp (true/false)" "false"
+  # Consumed by the installation renderer.
+  # shellcheck disable=SC2034
+  SLAB_WHATSAPP_ENABLED=$SLAB_PROMPT_VALUE
+  case "$SLAB_WHATSAPP_ENABLED" in true | false) ;; *) echo "Choose true or false" >&2; return 1 ;; esac
+
 }

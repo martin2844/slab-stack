@@ -55,7 +55,8 @@ slab_prepare_secrets() {
     session-secret \
     honcho-api-key \
     honcho-openai-api-key \
-    honcho-db-password
+    honcho-db-password \
+    waha-api-key
   do
     slab_ensure_secret_file "$secret_directory" "$secret_name" || {
       umask "$old_umask"

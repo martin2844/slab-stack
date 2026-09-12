@@ -465,3 +465,21 @@ installer config, shell history, Compose environment, or Slab database. Only
 Bridge's generated mailbox credential is retained by `slab-email`, encrypted at
 rest. Non-interactive installs intentionally skip account login because secrets
 must not be placed in declarative installer configuration.
+
+### Personal WhatsApp
+
+Set `SLAB_WHATSAPP_ENABLED=true` in the installer configuration, or install it
+later from **Integrations → WhatsApp** in Slab Agents. The host manager starts
+the optional `whatsapp` Compose profile using a pinned WAHA GOWS image. No WAHA
+port is published and Agents never receives the Docker socket. The API key is
+mounted as a Docker secret; the session is stored in `whatsapp_sessions` and
+included in backups while WhatsApp is enabled. Existing installations need the
+updated host manager and Compose template before the web install button works.
+
+Scan the QR using WhatsApp's **Linked devices** screen. Reading and sending are
+assigned separately to each agent. Sending can be disabled, require approval,
+or run autonomously. Relinking a different account removes previous grants.
+Agents use Slab's scoped MCP endpoint; WAHA's administration API stays internal.
+This connects a personal account through an unofficial WhatsApp client; WhatsApp
+may disconnect or restrict the account. Incoming-message triggers are separate
+from granting access and are not enabled by this connection.

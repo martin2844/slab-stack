@@ -643,6 +643,8 @@ slabctl_update_render_release() {
   acme_email=$(sed -n 's/^ACME_EMAIL=//p' "$SLABCTL_ENVIRONMENT_FILE")
   private_bind_ip=$(sed -n 's/^SLAB_PRIVATE_BIND_IP=//p' "$SLABCTL_ENVIRONMENT_FILE")
   private_port=$(sed -n 's/^SLAB_PRIVATE_PORT=//p' "$SLABCTL_ENVIRONMENT_FILE")
+  SLAB_WHATSAPP_ENABLED=$(sed -n 's/^SLAB_WHATSAPP_ENABLED=//p' "$SLABCTL_ENVIRONMENT_FILE")
+  : "${SLAB_WHATSAPP_ENABLED:=false}"
   SLAB_MEMORY_MODE=$(sed -n 's/^SLAB_MEMORY_MODE=//p' "$SLABCTL_ENVIRONMENT_FILE")
   SLAB_HONCHO_URL=$(sed -n 's/^SLAB_HONCHO_URL=//p' "$SLABCTL_ENVIRONMENT_FILE")
   SLAB_HONCHO_WORKSPACE_ID=$(sed -n 's/^SLAB_HONCHO_WORKSPACE_ID=//p' "$SLABCTL_ENVIRONMENT_FILE")
@@ -1099,10 +1101,11 @@ slabctl_update_bridge_validate_request() {
     exact_keys(["schemaVersion", "requestId", "action", "channel", "target", "requestedAt", "expiresAt"]) and
     .schemaVersion == 1 and
     .requestId == $requestId and
-    (.action | IN("check", "apply")) and
+    (.action | IN("check", "apply", "install_whatsapp")) and
     (.channel | IN("stable", "candidate")) and
     ((.action == "check" and (.target == null or (.target | semver))) or
-      (.action == "apply" and (.target | semver))) and
+      (.action == "apply" and (.target | semver)) or
+      (.action == "install_whatsapp" and .channel == "stable" and .target == null)) and
     (.requestedAt | type == "string" and
       test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$") and
       $requested != null) and
@@ -1255,6 +1258,9 @@ slabctl_update_bridge_process() {
     operation_status=0
     result_for_status=
     case "$action" in
+      install_whatsapp)
+        slabctl_install_whatsapp > "$result" 2> "$error" || operation_status=$?
+        ;;
       check)
         slabctl_update_check "$channel" json "$target" > "$result" 2> "$error" ||
           operation_status=$?
@@ -1589,4 +1595,23 @@ slabctl_update_rollback() (
   rollback_succeeded=1
   echo "Slab rolled back successfully: $from_version -> $to_version"
   echo "Pre-rollback backup: $rollback_backup"
+)
+
+# Called only under slabctl's host management lock. The image and service are
+# defined by the installed trusted bundle; requests cannot select either.
+slabctl_install_whatsapp() (
+  slabctl_compose --profile whatsapp config --services | grep -qx slab-whatsapp || {
+    echo "Upgrade slab-stack: this installation has no WhatsApp service definition." >&2
+    return 1
+  }
+  slabctl_compose --profile whatsapp pull slab-whatsapp || return 1
+  slabctl_compose --profile whatsapp up -d --no-deps --wait --wait-timeout 180 slab-whatsapp || return 1
+  # Keep optional services enabled across restarts and signed stack upgrades.
+  whatsapp_profiles=$(sed -n 's/^COMPOSE_PROFILES=//p' "$SLABCTL_ENVIRONMENT_FILE")
+  case ",$whatsapp_profiles," in *,whatsapp,*) ;; *) whatsapp_profiles=${whatsapp_profiles:+$whatsapp_profiles,}whatsapp ;; esac
+  whatsapp_env=$(mktemp "$SLABCTL_INSTALL_DIRECTORY/config/.whatsapp-env.XXXXXX") || return 1
+  sed '/^COMPOSE_PROFILES=/d; /^SLAB_WHATSAPP_ENABLED=/d' "$SLABCTL_ENVIRONMENT_FILE" > "$whatsapp_env" || { rm -f "$whatsapp_env"; return 1; }
+  printf 'COMPOSE_PROFILES=%s\nSLAB_WHATSAPP_ENABLED=true\n' "$whatsapp_profiles" >> "$whatsapp_env"
+  chmod 0600 "$whatsapp_env"
+  mv "$whatsapp_env" "$SLABCTL_ENVIRONMENT_FILE"
 )

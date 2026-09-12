@@ -14,16 +14,31 @@
     "expiresAt"
   ],
   "properties": {
-    "schemaVersion": { "const": 1 },
+    "schemaVersion": {
+      "const": 1
+    },
     "requestId": {
       "type": "string",
       "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
     },
-    "action": { "enum": ["check", "apply"] },
-    "channel": { "enum": ["stable", "candidate"] },
+    "action": {
+      "enum": [
+        "check",
+        "apply",
+        "install_whatsapp"
+      ]
+    },
+    "channel": {
+      "enum": [
+        "stable",
+        "candidate"
+      ]
+    },
     "target": {
       "oneOf": [
-        { "type": "null" },
+        {
+          "type": "null"
+        },
         {
           "type": "string",
           "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)(?:\\.(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$"
@@ -44,11 +59,43 @@
   "allOf": [
     {
       "if": {
-        "properties": { "action": { "const": "apply" } },
-        "required": ["action"]
+        "properties": {
+          "action": {
+            "const": "apply"
+          }
+        },
+        "required": [
+          "action"
+        ]
       },
       "then": {
-        "properties": { "target": { "type": "string" } }
+        "properties": {
+          "target": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "action": {
+            "const": "install_whatsapp"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      },
+      "then": {
+        "properties": {
+          "target": {
+            "type": "null"
+          },
+          "channel": {
+            "const": "stable"
+          }
+        }
       }
     }
   ]

@@ -104,6 +104,7 @@ function run(current, extraEnv = {}) {
       `set -eu
 . "$1"
 slabctl_error() { printf 'slabctl: %s\\n' "$*" >&2; return 1; }
+slabctl_install_whatsapp() { printf 'install_whatsapp\\n' >> "$SLAB_TEST_CALLS"; }
 slabctl_update_check() {
   printf 'check:%s:%s\\n' "$1" "$3" >> "$SLAB_TEST_CALLS"
   if [ "\${SLAB_TEST_FAIL_CHECK:-0}" = 1 ]; then
@@ -687,5 +688,35 @@ test("does not follow an abandoned request symlink", () => {
     assert.equal(published.target, null);
   } finally {
     fs.rmSync(current.directory, { recursive: true, force: true });
+  }
+});
+
+test("WhatsApp installation accepts only the fixed host action and journals replays", () => {
+  const current = fixture();
+  try {
+    writeRequest(current, request({ action: "install_whatsapp" }));
+    let result = run(current);
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(fs.readFileSync(current.calls, "utf8").trim(), "install_whatsapp");
+    const status = JSON.parse(fs.readFileSync(path.join(current.bridge, "status/requests", requestId + ".json"), "utf8"));
+    assert.equal(status.state, "succeeded");
+    assert.equal(status.action, "install_whatsapp");
+    writeRequest(current, request({ action: "install_whatsapp" }));
+    result = run(current);
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(fs.readFileSync(current.calls, "utf8").trim(), "install_whatsapp");
+  } finally { fs.rmSync(current.directory, { recursive: true, force: true }); }
+});
+
+test("WhatsApp installation refuses image, channel and target overrides", () => {
+  for (const overrides of [{ image: "untrusted" }, { target: "1.2.3" }, { channel: "candidate" }, { action: "exec" }]) {
+    const current = fixture();
+    try {
+      writeRequest(current, request({ action: "install_whatsapp", ...overrides }));
+      run(current);
+      assert.equal(fs.existsSync(current.calls), false);
+      const status = JSON.parse(fs.readFileSync(path.join(current.bridge, "status/requests", requestId + ".json"), "utf8"));
+      assert.equal(status.state, "failed");
+    } finally { fs.rmSync(current.directory, { recursive: true, force: true }); }
   }
 });

@@ -138,7 +138,13 @@ slabctl_archive_is_age_encrypted() {
 }
 
 slabctl_volume_names() {
-  slabctl_compose config --volumes | LC_ALL=C sort -u
+  slabctl_compose config --volumes | while IFS= read -r logical_volume; do
+    if [ "$logical_volume" = whatsapp_sessions ] &&
+      ! grep -qx 'SLAB_WHATSAPP_ENABLED=true' "$SLABCTL_ENVIRONMENT_FILE"; then
+      continue
+    fi
+    printf '%s\n' "$logical_volume"
+  done | LC_ALL=C sort -u
 }
 
 slabctl_volume_scope() {
@@ -638,8 +644,8 @@ slabctl_backup_validate_manifest() {
     (.source.accessMode | IN("private", "domain")) and
     (.images | type == "object") and
     (.files | type == "array") and
-    ((([.files[].path] | sort) == ($requiredFiles | split("\n") | sort)) or
-      (([.files[].path] | sort) == ($legacyRequiredFiles | split("\n") | sort))) and
+    ((([.files[].path | select(. != "secrets/waha-api-key")] | sort) == ($requiredFiles | split("\n") | sort)) or
+      (([.files[].path | select(. != "secrets/waha-api-key")] | sort) == ($legacyRequiredFiles | split("\n") | sort))) and
     (.volumes | type == "array" and length > 0) and
     ([.volumes[].logicalName] | length == (unique | length)) and
     ([.files[].path, .volumes[].archivePath] | length == (unique | length)) and

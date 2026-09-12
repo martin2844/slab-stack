@@ -302,3 +302,23 @@ test("rejects managed-file symlinks instead of writing through them", () => {
     fs.rmSync(temporaryDirectory, { recursive: true, force: true });
   }
 });
+
+test("WhatsApp is optional, isolated and keeps the memory profile", () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "slab-render-whatsapp-"));
+  try {
+    const result = render(directory, "private", "http://127.0.0.1:3009", "", "", "1", { SLAB_MEMORY_MODE: "self_hosted", SLAB_WHATSAPP_ENABLED: "true" });
+    assert.equal(result.status, 0, result.stderr);
+    const environment = fs.readFileSync(path.join(directory, "config/install.env"), "utf8");
+    assert.match(environment, /^COMPOSE_PROFILES=memory,whatsapp$/m);
+    assert.match(environment, /^SLAB_WHATSAPP_ENABLED=true$/m);
+    const secret = fs.readFileSync(path.join(directory, "secrets/waha-api-key"), "utf8").trim();
+    assert.ok(secret.length >= 32);
+    assert.equal(environment.includes(secret), false);
+    const compose = fs.readFileSync(path.join(directory, "compose.yml"), "utf8");
+    const waha = compose.split("  slab-whatsapp:")[1].split("  slab-agents:")[0];
+    assert.match(waha, /profiles: \[whatsapp\]/);
+    assert.match(waha, /@sha256:[a-f0-9]{64}/);
+    assert.match(waha, /whatsapp_sessions:\/app\/\.sessions/);
+    assert.doesNotMatch(waha, /ports:|docker\.sock/);
+  } finally { fs.rmSync(directory, { recursive: true, force: true }); }
+});

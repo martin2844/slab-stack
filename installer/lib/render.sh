@@ -133,6 +133,12 @@ slab_render_installation() {
     *) echo "Unsupported memory mode: $memory_mode" >&2; return 1 ;;
   esac
 
+  case "${SLAB_WHATSAPP_ENABLED:-false}" in
+    true) compose_profiles=${compose_profiles:+$compose_profiles,}whatsapp ;;
+    false) ;;
+    *) echo "Invalid WhatsApp setting" >&2; return 1 ;;
+  esac
+
   case "$access_mode" in
     private | domain) ;;
     *) echo "Unsupported access mode: $access_mode" >&2; return 1 ;;
@@ -206,6 +212,7 @@ slab_render_installation() {
     printf 'SLAB_PRIVATE_BIND_IP=%s\n' "$private_bind_ip"
     printf 'SLAB_PRIVATE_PORT=%s\n' "$private_port"
     printf 'COMPOSE_PROFILES=%s\n' "$compose_profiles"
+    printf 'SLAB_WHATSAPP_ENABLED=%s\n' "${SLAB_WHATSAPP_ENABLED:-false}"
     printf 'SLAB_MEMORY_MODE=%s\n' "$memory_mode"
     printf 'SLAB_MEMORY_PROVIDER=%s\n' "$memory_provider"
     printf 'SLAB_HONCHO_URL=%s\n' "$honcho_url"

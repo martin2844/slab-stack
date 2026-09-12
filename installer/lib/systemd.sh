@@ -59,6 +59,11 @@ slab_install_systemd_unit() {
     "$bridge_root/status/requests"
   chmod 0755 "$bridge_root" "$bridge_root/status" \
     "$bridge_root/status/requests"
+  capability_file=$(mktemp "$bridge_root/status/.capabilities.XXXXXX") || return 1
+  printf '%s\n' '{"schemaVersion":1,"actions":["check","apply","install_whatsapp"]}' > "$capability_file"
+  chmod 0644 "$capability_file"
+  if [ "$(id -u)" -eq 0 ]; then chown "$owner_uid" "$capability_file"; fi
+  mv -f "$capability_file" "$bridge_root/status/capabilities.json"
   chmod 1733 "$bridge_root/requests"
   chmod 0700 "$bridge_root/requests/.claimed" \
     "$bridge_root/requests/.uploads" "$bridge_root/processing"
