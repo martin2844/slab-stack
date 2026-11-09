@@ -1,0 +1,70 @@
+# Slab coding sandbox: a second Slab Runner built from the `code` Dockerfile
+# target (RUNNER_PROFILE=code). Codex runs inside this container without
+# per-command approvals on per-task git checkouts; the container is the sandbox.
+#
+# Overlay on top of compose.yml and enable the `code` profile:
+#   docker compose -f compose.yml -f compose.code.yml --profile code up -d
+#
+# This overlay also points slab-agents at the code runner (CODE_RUNNER_URL and
+# the runner_code_token secret), so the Coding section works without other edits.
+# Create the secret first, for example:
+#   openssl rand -hex 32 > secrets/runner-code-token && chmod 600 secrets/runner-code-token
+#
+# Codex login for this runner is separate from slab-runner: run the device
+# login against this runner (POST /auth/codex/device-login) from Settings.
+
+services:
+  slab-agents:
+    secrets:
+      - runner_code_token
+    environment:
+      CODE_RUNNER_URL: http://slab-runner-code:6990
+      CODE_RUNNER_TOKEN_FILE: /run/secrets/runner_code_token
+
+  slab-runner-code:
+    image: ${SLAB_RUNNER_CODE_IMAGE:?SLAB_RUNNER_CODE_IMAGE is required}
+    profiles: [code]
+    restart: unless-stopped
+    init: true
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    expose: ["6990"]
+    networks: [control]
+    volumes:
+      - runner_code_codex:/var/lib/slab-runner/codex
+      - code_data:/var/lib/slab-code
+    secrets:
+      - runner_code_token
+    environment:
+      RUNNER_HOST: 0.0.0.0
+      RUNNER_PORT: "6990"
+      RUNNER_TOKEN_FILE: /run/secrets/runner_code_token
+      RUNNER_PROFILE: code
+      RUNNER_CODE_ROOT: /var/lib/slab-code
+      RUNNER_CODEX_HOME: /var/lib/slab-runner/codex
+      CODEX_BIN: /usr/local/bin/codex
+    mem_limit: 6g
+    cpus: 3
+    pids_limit: 2048
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:6990/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 15s
+
+networks:
+  control:
+
+volumes:
+  runner_code_codex:
+  code_data:
+
+secrets:
+  runner_code_token:
+    file: ./secrets/runner-code-token
