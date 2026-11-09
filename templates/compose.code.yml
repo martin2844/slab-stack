@@ -12,6 +12,9 @@
 #
 # Codex login for this runner is separate from slab-runner: run the device
 # login against this runner (POST /auth/codex/device-login) from Settings.
+#
+# Resource limits default to 6g / 3 CPUs; set SLAB_RUNNER_CODE_MEM_LIMIT and
+# SLAB_RUNNER_CODE_CPUS in the env file on smaller hosts.
 
 services:
   slab-agents:
@@ -48,8 +51,8 @@ services:
       RUNNER_CODE_ROOT: /var/lib/slab-code
       RUNNER_CODEX_HOME: /var/lib/slab-runner/codex
       CODEX_BIN: /usr/local/bin/codex
-    mem_limit: 6g
-    cpus: 3
+    mem_limit: ${SLAB_RUNNER_CODE_MEM_LIMIT:-6g}
+    cpus: ${SLAB_RUNNER_CODE_CPUS:-3}
     pids_limit: 2048
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:6990/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
