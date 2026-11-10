@@ -290,6 +290,32 @@ test("stack lifecycle commands use the registered immutable Compose identity", (
   }
 });
 
+test("stack lifecycle keeps the code runner overlay when it is installed", () => {
+  const current = fixture();
+  try {
+    const plain = run(current, ["stack", "start"]);
+    assert.equal(plain.status, 0, plain.stderr);
+    assert.doesNotMatch(fs.readFileSync(current.calls, "utf8"), /compose\.code\.yml/);
+
+    const overlay = path.join(current.installDirectory, "compose.code.yml");
+    fs.writeFileSync(overlay, "services: {}\n");
+    fs.writeFileSync(current.calls, "");
+    const start = run(current, ["stack", "start"]);
+    assert.equal(start.status, 0, start.stderr);
+    const calls = fs.readFileSync(current.calls, "utf8");
+    assert.match(calls, /-f \S+compose\.private\.yml -f \S+compose\.code\.yml config --quiet/);
+    assert.match(calls, /-f \S+compose\.code\.yml up -d --remove-orphans/);
+
+    // An unsafe overlay is refused instead of being loaded into the root-run stack.
+    fs.chmodSync(overlay, 0o666);
+    const unsafe = run(current, ["stack", "start"]);
+    assert.notEqual(unsafe.status, 0);
+    assert.match(unsafe.stderr, /group\/world writable: \S+compose\.code\.yml/);
+  } finally {
+    fs.rmSync(current.directory, { recursive: true, force: true });
+  }
+});
+
 test("domain verification promotes TLS_PENDING after trusted HTTPS is reachable", () => {
   const current = fixture("TLS_PENDING", "domain");
   try {

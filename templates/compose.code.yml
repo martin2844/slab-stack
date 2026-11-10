@@ -8,7 +8,13 @@
 # This overlay also points slab-agents at the code runner (CODE_RUNNER_URL and
 # the runner_code_token secret), so the Coding section works without other edits.
 # Create the secret first, for example:
-#   openssl rand -hex 32 > secrets/runner-code-token && chmod 600 secrets/runner-code-token
+#   openssl rand -hex 32 > secrets/runner-code-token && chmod 0444 secrets/runner-code-token
+# Use 0444 like the other secrets (the secrets directory itself is 0700): the
+# runner runs as a non-root user and exits with "Runner startup failed" when it
+# cannot read the token.
+#
+# slabctl and the installer include this overlay automatically when the file
+# exists in the installation directory, so systemd restarts keep the runner.
 #
 # Codex login for this runner is separate from slab-runner: run the device
 # login against this runner (POST /auth/codex/device-login) from Settings.

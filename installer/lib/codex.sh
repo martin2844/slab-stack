@@ -72,6 +72,10 @@ slabctl_load_installation() {
     *) slabctl_error "installed access mode is invalid"; return 1 ;;
   esac
   slabctl_validate_managed_file "$overlay_file" || return 1
+  if [ -e "$install_directory/compose.code.yml" ]; then
+    slabctl_validate_managed_file "$install_directory/compose.code.yml" ||
+      return 1
+  fi
 
   SLABCTL_INSTALL_DIRECTORY=$install_directory
   SLABCTL_STATE_FILE=$state_file
@@ -83,7 +87,13 @@ slabctl_load_installation() {
   SLABCTL_OVERLAY_FILE=$overlay_file
 }
 
+# The optional code runner overlay (compose.code.yml) is operator-installed.
+# When present it is part of the stack, so every lifecycle command (systemd
+# start, restart, doctor) keeps slab-runner-code and CODE_RUNNER_URL.
 slabctl_compose() {
+  if [ -f "$SLABCTL_INSTALL_DIRECTORY/compose.code.yml" ]; then
+    set -- -f "$SLABCTL_INSTALL_DIRECTORY/compose.code.yml" "$@"
+  fi
   docker compose \
     --project-name "$SLABCTL_PROJECT_NAME" \
     --env-file "$SLABCTL_ENVIRONMENT_FILE" \

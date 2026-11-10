@@ -70,3 +70,28 @@ test("terminal migration failure is preferred over a merely pending service", ()
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.stdout.trim(), "work-migrate");
 });
+
+test("compose includes the code runner overlay only when it is installed", () => {
+  const script = (withOverlay) => `
+    dir=$(mktemp -d)
+    ${withOverlay ? 'touch "$dir/compose.code.yml"' : ""}
+    SLAB_COMPOSE_PROJECT_NAME=slab
+    SLAB_COMPOSE_INSTALL_DIRECTORY=$dir
+    SLAB_COMPOSE_OVERLAY=$dir/compose.domain.yml
+    docker() { printf '%s\\n' "$@" | sed "s|$dir|DIR|"; }
+    slab_compose up -d
+    rm -rf "$dir"
+  `;
+  const base = [
+    "compose", "--project-name", "slab", "--env-file", "DIR/config/install.env",
+    "-f", "DIR/compose.yml", "-f", "DIR/compose.domain.yml",
+  ];
+  const without = run(script(false));
+  assert.equal(without.status, 0, without.stderr);
+  assert.deepEqual(without.stdout.trim().split("\n"), [...base, "up", "-d"]);
+  const withCode = run(script(true));
+  assert.equal(withCode.status, 0, withCode.stderr);
+  assert.deepEqual(withCode.stdout.trim().split("\n"), [
+    ...base, "-f", "DIR/compose.code.yml", "up", "-d",
+  ]);
+});

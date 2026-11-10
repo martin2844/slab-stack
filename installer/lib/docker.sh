@@ -23,7 +23,12 @@ slab_configure_compose() {
   esac
 }
 
+# Includes the optional code runner overlay when the operator installed it,
+# so reruns of the installer do not drop slab-runner-code.
 slab_compose() {
+  if [ -f "$SLAB_COMPOSE_INSTALL_DIRECTORY/compose.code.yml" ]; then
+    set -- -f "$SLAB_COMPOSE_INSTALL_DIRECTORY/compose.code.yml" "$@"
+  fi
   docker compose \
     --project-name "$SLAB_COMPOSE_PROJECT_NAME" \
     --env-file "$SLAB_COMPOSE_INSTALL_DIRECTORY/config/install.env" \
